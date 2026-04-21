@@ -1,0 +1,39 @@
+{
+  "family_name": "Shapira",
+  "data_dir": "./data",
+  "photos_dir": "./photos",
+  "caption_model": "gpt-4o",
+  "embed_model": "text-embedding-3-small",
+  "face_tolerance": 0.5,
+  "people": [
+    {"id": "yaron",    "name": "Yaron Shapira"},
+    {"id": "noa",      "name": "Noa Shapira"},
+    {"id": "eti",      "name": "Eti Shapira"},
+    {"id": "avi",      "name": "Avi Shapira"},
+    {"id": "eran",     "name": "Eran Shapira"},
+    {"id": "eliezer",  "name": "Eliezer Shapira"},
+    {"id": "roy",      "name": "Roy Shapira"},
+    {"id": "genia",    "name": "Genia Shapira"},
+    {"id": "shlomi",   "name": "Shlomi Shapira"},
+    {"id": "yosef",    "name": "Yosef Katz"},
+    {"id": "tali",     "name": "Tali"},
+    {"id": "alex",     "name": "Alex"},
+    {"id": "marcu",    "name": "Marcu Katz"}
+  ],
+  "google_name_aliases": {
+    "yaron shapira":    "yaron",
+    "noa shapira":      "noa",
+    "נוי שפירא":        "noa",
+    "eti shapira":      "eti",
+    "avi shapira":      "avi",
+    "eran shapira":     "eran",
+    "eliezer shapira":  "eliezer",
+    "רוי שפירא":        "roy",
+    "genia shapira":    "genia",
+    "שלומי שפירא":      "shlomi",
+    "yosef katz":       "yosef",
+    "טלי":              "tali",
+    "אלכס":             "alex",
+    "marcu katz":       "marcu"
+  }
+}

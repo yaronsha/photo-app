@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "family-photos-app"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "chromadb",
+    "openai",
+    "Pillow",
+    "pillow-heif",
+    "exifread",
+    "python-dotenv",
+    "pydantic>=2",
+]
+
+[project.scripts]
+photos-index = "app.indexer.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+]

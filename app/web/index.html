@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Family Photos</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Family Photos</h1>
+    <form id="search-form">
+      <input type="text" id="query" placeholder="Search photos…" autocomplete="off">
+      <input type="number" id="year-from" placeholder="From year" min="1900" max="2100">
+      <input type="number" id="year-to" placeholder="To year" min="1900" max="2100">
+      <button type="submit">Search</button>
+    </form>
+  </header>
+  <main>
+    <div id="status"></div>
+    <div id="grid"></div>
+  </main>
+  <div id="lightbox" class="lightbox hidden">
+    <button id="close-btn">&times;</button>
+    <img id="lightbox-img" src="" alt="">
+    <p id="lightbox-caption"></p>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
