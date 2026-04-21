@@ -13,8 +13,8 @@ def main():
     parser.add_argument(
         "--limit",
         type=int,
-        default=50,
-        help="Max photos to caption (default: 50)",
+        default=None,
+        help="Max photos to process (caption defaults to 50 if unset)",
     )
     parser.add_argument(
         "--reindex",
@@ -37,11 +37,11 @@ def main():
 
     elif args.step == "caption":
         from .caption import run_caption
-        run_caption(limit=args.limit, reindex=args.reindex)
+        run_caption(limit=args.limit or 50, reindex=args.reindex)
 
     elif args.step == "embed":
         from .embed import run_embed
-        run_embed(reindex=args.reindex)
+        run_embed(reindex=args.reindex, limit=args.limit)
 
     elif args.step == "all":
         from .scan import run_scan

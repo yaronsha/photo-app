@@ -31,7 +31,7 @@ def assert_embed_model(model: str) -> None:
     col = get_collection()
     stored = col.metadata.get("embed_model") if col.metadata else None
     if stored is None:
-        col.modify(metadata={**(col.metadata or {}), "embed_model": model})
+        col.modify(metadata={"embed_model": model})
     elif stored != model:
         raise RuntimeError(
             f"Corpus embed model mismatch: stored={stored!r}, requested={model!r}. "

@@ -1,14 +1,13 @@
-import io
 import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
 from ..config import get_settings
-from ..db import get_conn, init_schema
+from ..db import get_conn, init_schema, row_to_dict
 from ..search.query import search as do_search
 
 app = FastAPI(title="Family Photos")
@@ -24,14 +23,26 @@ def startup():
     get_settings().thumbs_path.mkdir(parents=True, exist_ok=True)
 
 
+@app.get("/people")
+def people_endpoint():
+    return [{"id": p.id, "name": p.name} for p in get_settings().people]
+
+
 @app.get("/search")
 def search_endpoint(
     q: str = Query(..., min_length=1),
     limit: int = Query(50, ge=1, le=200),
     year_from: int | None = Query(None),
     year_to: int | None = Query(None),
+    person_id: list[str] = Query(default=[]),
 ):
-    results = do_search(q, limit=limit, year_from=year_from, year_to=year_to)
+    results = do_search(
+        q,
+        limit=limit,
+        year_from=year_from,
+        year_to=year_to,
+        person_ids=person_id or None,
+    )
     return {
         "results": [
             {
@@ -40,6 +51,9 @@ def search_endpoint(
                 "taken_at": r.taken_at,
                 "thumb_url": f"/thumb/{r.id}",
                 "score": r.score,
+                "location_name": r.location_name,
+                "tags": r.tags or [],
+                "people": r.people or [],
             }
             for r in results
         ]
@@ -56,6 +70,40 @@ def thumb(photo_id: str):
         _generate_thumb(storage_path, thumb_path)
 
     return FileResponse(str(thumb_path), media_type="image/jpeg")
+
+
+@app.get("/photo/{photo_id}/info")
+def photo_info(photo_id: str):
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM photos WHERE id = ?", (photo_id,)
+    ).fetchone()
+    if row is None:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    data = row_to_dict(row)
+
+    pp_rows = conn.execute(
+        """
+        SELECT p.id, p.name
+        FROM photo_people pp
+        JOIN people p ON p.id = pp.person_id
+        WHERE pp.photo_id = ?
+        """,
+        (photo_id,),
+    ).fetchall()
+    conn.close()
+
+    return {
+        "id": photo_id,
+        "caption": data.get("caption"),
+        "taken_at": data.get("taken_at"),
+        "location_name": data.get("location_name"),
+        "description": data.get("description"),
+        "tags": data.get("tags") or [],
+        "people": [{"id": r["id"], "name": r["name"]} for r in pp_rows],
+    }
 
 
 @app.get("/photo/{photo_id}")

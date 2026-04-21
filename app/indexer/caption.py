@@ -62,11 +62,11 @@ async def _run_caption_async(limit: int, reindex: bool) -> int:
             "UPDATE photos SET caption = ?, tags = ?, caption_indexed_at = ? WHERE id = ?",
             (result["caption"], json.dumps(result["tags"]), now, row["id"]),
         )
+        conn.commit()
         captioned += 1
 
     await asyncio.gather(*[process(row) for row in rows])
 
-    conn.commit()
     conn.close()
     print(f"caption: {captioned} captioned, {skipped} skipped")
     return captioned

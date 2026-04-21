@@ -3,28 +3,190 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Family Photos</title>
+  <title>Shapira — Family Archive</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Lora:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <header>
-    <h1>Family Photos</h1>
-    <form id="search-form">
-      <input type="text" id="query" placeholder="Search photos…" autocomplete="off">
-      <input type="number" id="year-from" placeholder="From year" min="1900" max="2100">
-      <input type="number" id="year-to" placeholder="To year" min="1900" max="2100">
-      <button type="submit">Search</button>
-    </form>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="header-brand">
+        <h1 class="family-name">Shapira</h1>
+        <span class="family-tagline">Family Archive</span>
+      </div>
+      <nav class="site-nav" aria-label="Main navigation">
+        <button class="nav-btn active" data-view="search">Search</button>
+        <span class="nav-sep" aria-hidden="true">·</span>
+        <button class="nav-btn" data-view="games">Games</button>
+      </nav>
+    </div>
+    <div class="header-rule" aria-hidden="true"></div>
   </header>
-  <main>
-    <div id="status"></div>
-    <div id="grid"></div>
+
+  <main class="site-main">
+
+    <!-- ── SEARCH VIEW ── -->
+    <section id="view-search" class="view is-active">
+
+      <div class="search-panel">
+        <form id="search-form" autocomplete="off" role="search">
+          <div class="search-box">
+            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            </svg>
+            <input
+              type="search"
+              id="query"
+              class="search-input"
+              placeholder="grandma at the beach…"
+              spellcheck="false"
+              aria-label="Search photos"
+            >
+            <button type="submit" class="search-submit" aria-label="Search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+                <path d="M5 12h14M12 5l7 7-7 7"/>
+              </svg>
+            </button>
+          </div>
+        </form>
+
+        <div class="filters" role="group" aria-label="Search filters">
+          <div class="filter-row" id="people-filter" hidden>
+            <span class="filter-label" id="people-label">People</span>
+            <div class="chip-list" id="people-chips" role="group" aria-labelledby="people-label"></div>
+          </div>
+          <div class="filter-row">
+            <span class="filter-label" id="years-label">Years</span>
+            <div class="year-range" role="group" aria-labelledby="years-label">
+              <input type="number" id="year-from" class="year-input" placeholder="1950" min="1900" max="2100" aria-label="From year">
+              <span class="year-dash" aria-hidden="true">—</span>
+              <input type="number" id="year-to" class="year-input" placeholder="2024" min="1900" max="2100" aria-label="To year">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="status" class="status-bar" aria-live="polite" aria-atomic="true"></div>
+      <div id="grid" class="photo-grid" role="list"></div>
+
+    </section>
+
+    <!-- ── GAMES VIEW ── -->
+    <section id="view-games" class="view" aria-label="Games">
+      <div class="games-splash">
+        <div class="games-icon-wrap" aria-hidden="true">
+          <svg viewBox="0 0 64 64" fill="none">
+            <rect x="8" y="12" width="48" height="34" rx="7" stroke="currentColor" stroke-width="2"/>
+            <rect x="17" y="20" width="11" height="9" rx="2" fill="currentColor" opacity="0.25"/>
+            <rect x="36" y="20" width="11" height="9" rx="2" fill="currentColor" opacity="0.25"/>
+            <path d="M24 46 C24 46 32 54 40 46" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="32" cy="57" r="2.5" fill="currentColor" opacity="0.3"/>
+          </svg>
+        </div>
+        <h2 class="games-title">Family Games</h2>
+        <p class="games-subtitle">Test your knowledge of the archive</p>
+        <div class="games-grid" role="list">
+          <article class="game-card" role="listitem">
+            <div class="game-card-icon" aria-hidden="true">👤</div>
+            <h3>Who is this?</h3>
+            <p>Identify family members from old photos</p>
+            <span class="game-badge">Coming soon</span>
+          </article>
+          <article class="game-card" role="listitem">
+            <div class="game-card-icon" aria-hidden="true">📅</div>
+            <h3>Guess the year</h3>
+            <p>Can you date these moments?</p>
+            <span class="game-badge">Coming soon</span>
+          </article>
+          <article class="game-card" role="listitem">
+            <div class="game-card-icon" aria-hidden="true">👶</div>
+            <h3>Baby match</h3>
+            <p>Match the baby photo to the adult</p>
+            <span class="game-badge">Coming soon</span>
+          </article>
+          <article class="game-card" role="listitem">
+            <div class="game-card-icon" aria-hidden="true">🔍</div>
+            <h3>Odd one out</h3>
+            <p>Spot the photo that doesn't belong</p>
+            <span class="game-badge">Coming soon</span>
+          </article>
+        </div>
+      </div>
+    </section>
+
   </main>
-  <div id="lightbox" class="lightbox hidden">
-    <button id="close-btn">&times;</button>
-    <img id="lightbox-img" src="" alt="">
-    <p id="lightbox-caption"></p>
+
+  <!-- ── LIGHTBOX ── -->
+  <div
+    id="lightbox"
+    class="lightbox"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Photo viewer"
+    hidden
+  >
+    <div class="lb-backdrop" id="lb-backdrop"></div>
+
+    <button class="lb-close" id="lb-close" aria-label="Close photo viewer">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M18 6 6 18M6 6l12 12"/>
+      </svg>
+    </button>
+
+    <button class="lb-nav lb-prev" id="lb-prev" aria-label="Previous photo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+        <path d="M15 18 9 12l6-6"/>
+      </svg>
+    </button>
+    <button class="lb-nav lb-next" id="lb-next" aria-label="Next photo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+        <path d="M9 18l6-6-6-6"/>
+      </svg>
+    </button>
+
+    <div class="lb-layout">
+      <div class="lb-photo-wrap">
+        <div class="lb-spinner" id="lb-spinner" aria-hidden="true">
+          <div class="spinner-ring"></div>
+        </div>
+        <img id="lb-img" src="" alt="" class="lb-img">
+      </div>
+      <aside class="lb-sidebar">
+        <p class="lb-caption" id="lb-caption"></p>
+        <div class="lb-meta-list">
+          <div class="lb-meta-row" id="lb-date-row">
+            <svg class="lb-meta-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/>
+            </svg>
+            <span id="lb-date"></span>
+          </div>
+          <div class="lb-meta-row" id="lb-location-row" hidden>
+            <svg class="lb-meta-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/>
+            </svg>
+            <span id="lb-location"></span>
+          </div>
+        </div>
+        <div class="lb-section" id="lb-people-wrap" hidden>
+          <span class="lb-section-label">People</span>
+          <div class="lb-people" id="lb-people"></div>
+        </div>
+        <div class="lb-section" id="lb-tags-wrap" hidden>
+          <span class="lb-section-label">Tags</span>
+          <div class="lb-tags" id="lb-tags"></div>
+        </div>
+        <div class="lb-section" id="lb-desc-wrap" hidden>
+          <span class="lb-section-label">Note</span>
+          <p class="lb-description" id="lb-description"></p>
+        </div>
+        <div class="lb-counter" id="lb-counter" aria-live="polite"></div>
+      </aside>
+    </div>
   </div>
+
   <script src="/static/app.js"></script>
 </body>
 </html>

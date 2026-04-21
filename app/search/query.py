@@ -9,6 +9,7 @@ def search(
     limit: int = 50,
     year_from: int | None = None,
     year_to: int | None = None,
+    person_ids: list[str] | None = None,
 ) -> list[SearchResult]:
     provider = get_embed_provider()
     qvec = provider.embed(query)
@@ -39,14 +40,50 @@ def search(
     if not ids:
         return []
 
-    placeholders = ",".join("?" * len(ids))
     conn = get_conn()
-    rows = conn.execute(
-        f"SELECT * FROM photos WHERE id IN ({placeholders})", ids
-    ).fetchall()
-    conn.close()
+
+    # Build SQL with optional person filter
+    id_placeholders = ",".join("?" * len(ids))
+    if person_ids:
+        person_placeholders = ",".join("?" * len(person_ids))
+        rows = conn.execute(
+            f"""
+            SELECT * FROM photos
+            WHERE id IN ({id_placeholders})
+              AND id IN (
+                SELECT photo_id FROM photo_people
+                WHERE person_id IN ({person_placeholders})
+              )
+            """,
+            [*ids, *person_ids],
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            f"SELECT * FROM photos WHERE id IN ({id_placeholders})", ids
+        ).fetchall()
 
     by_id = {r["id"]: row_to_dict(r) for r in rows}
+
+    # Batch-fetch people for all returned photos
+    returned_ids = list(by_id.keys())
+    people_by_photo: dict[str, list[dict]] = {pid: [] for pid in returned_ids}
+    if returned_ids:
+        pp_placeholders = ",".join("?" * len(returned_ids))
+        pp_rows = conn.execute(
+            f"""
+            SELECT pp.photo_id, p.id, p.name
+            FROM photo_people pp
+            JOIN people p ON p.id = pp.person_id
+            WHERE pp.photo_id IN ({pp_placeholders})
+            """,
+            returned_ids,
+        ).fetchall()
+        for pp in pp_rows:
+            people_by_photo[pp["photo_id"]].append(
+                {"id": pp["id"], "name": pp["name"]}
+            )
+
+    conn.close()
 
     results = []
     for photo_id, dist in zip(ids, distances):
@@ -60,6 +97,9 @@ def search(
                 taken_at=row.get("taken_at"),
                 storage_path=row["storage_path"],
                 score=1.0 - dist,
+                location_name=row.get("location_name"),
+                tags=row.get("tags") or [],
+                people=people_by_photo.get(photo_id, []),
             )
         )
     return results

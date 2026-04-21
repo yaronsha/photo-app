@@ -9,7 +9,7 @@ from .config import get_settings
 def get_conn() -> sqlite3.Connection:
     settings = get_settings()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(settings.db_path))
+    conn = sqlite3.connect(str(settings.db_path), timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")

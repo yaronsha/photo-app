@@ -25,3 +25,6 @@ class SearchResult:
     taken_at: datetime | None
     storage_path: str
     score: float
+    location_name: str | None = None
+    tags: list[str] | None = None
+    people: list[dict] | None = None
