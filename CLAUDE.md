@@ -29,10 +29,11 @@ Each step is independent and re-runnable:
 0. merge      → scripts/merge_takeouts.py → photos/ + data/sidecars/
 1. scan       → EXIF → SQLite
 2. google_metadata → data/sidecars/{id}.json → SQLite (taken_at, lat/lng, description, photo_people)
-3. caption    → Vision LLM → SQLite (caption, tags)
-4. embed      → caption → ChromaDB vector
-5. faces      → face_recognition → SQLite (photo_people)
-6. scores     → LLM or model → SQLite columns
+3. location   → reverse_geocoder (offline) → SQLite (location_name)
+4. caption    → Vision LLM + location hint → SQLite (caption, tags)
+5. embed      → caption → ChromaDB vector
+6. faces      → face_recognition → SQLite (photo_people)
+7. scores     → LLM or model → SQLite columns
 ```
 
 Track progress with `*_indexed_at` timestamps. Skip already-indexed unless `--reindex` flag passed.

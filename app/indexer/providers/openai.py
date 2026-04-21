@@ -16,11 +16,16 @@ def _get_client() -> OpenAI:
 
 
 class OpenAIProvider:
-    def caption(self, image_path: Path) -> dict:
+    def caption(self, image_path: Path, location_hint: str | None = None) -> dict:
         data = image_path.read_bytes()
         b64 = base64.b64encode(data).decode()
         ext = image_path.suffix.lower().lstrip(".")
         mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
+
+        location_line = (
+            f"Location hint: {location_hint}. If you can identify the specific place, mention it in the caption.\n"
+            if location_hint else ""
+        )
 
         model = get_settings().caption_model
         resp = _get_client().chat.completions.create(
@@ -31,11 +36,12 @@ class OpenAIProvider:
                     "content": [
                         {
                             "type": "image_url",
-                            "image_url": {"url": f"data:{mime};base64,{b64}"},
+                            "image_url": {"url": f"data:{mime};base64,{b64}", "detail": "low"},
                         },
                         {
                             "type": "text",
                             "text": (
+                                f"{location_line}"
                                 "Describe this photo in one clear, descriptive sentence. "
                                 "Then list up to 8 tags (comma-separated) that describe the scene, "
                                 "setting, activity, mood, and objects — do NOT include people's names. "

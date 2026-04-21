@@ -2,7 +2,7 @@
   "family_name": "Shapira",
   "data_dir": "./data",
   "photos_dir": "./photos",
-  "caption_model": "gpt-4o",
+  "caption_model": "gpt-4o-mini",
   "embed_model": "text-embedding-3-small",
   "face_tolerance": 0.5,
   "people": [

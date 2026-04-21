@@ -16,6 +16,7 @@ dependencies = [
     "exifread",
     "python-dotenv",
     "pydantic>=2",
+    "reverse_geocoder==1.5.1",
 ]
 
 [project.scripts]

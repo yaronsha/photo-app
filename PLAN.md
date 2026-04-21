@@ -49,7 +49,8 @@ family-photos-app/
 │   │   ├── cli.py              # `python -m app.indexer` entry (argparse: --step, --limit, --reindex)
 │   │   ├── scan.py             # walk photos_dir, extract EXIF, upsert SQLite rows
 │   │   ├── google_metadata.py  # read data/sidecars/ → enrich taken_at, geoData, description, photo_people
-│   │   ├── caption.py          # vision LLM → caption/tags; provider interface (OpenAI only Phase 1)
+│   │   ├── location.py         # reverse_geocoder (offline) → location_name
+│   │   ├── caption.py          # vision LLM + location hint → caption/tags; provider interface (OpenAI only Phase 1)
 │   │   ├── embed.py            # caption+tags → embedding → ChromaDB upsert
 │   │   └── providers/
 │   │       ├── __init__.py     # get_caption_provider() + get_embed_provider() — returns OpenAI impl in Phase 1
@@ -134,7 +135,7 @@ python scripts/merge_takeouts.py ~/Downloads/Takeout/Google\ Photos ~/Downloads/
    - Register `pillow-heif` opener at module import so Pillow can read `.heic`.
    - Compute `id = sha256(file_bytes)[:16]` — content hash. Dedup: on collision with existing row, keep first `storage_path`, skip.
    - Extract EXIF via `exifread` or `Pillow.ExifTags`: `DateTimeOriginal`, GPS → lat/lng.
-   - Reverse geocode: **skip for Phase 1** (leave `location_name` NULL; add in Phase 3 via offline DB to keep local-only).
+   - Reverse geocode: handled by `location` step (offline, `reverse_geocoder` lib).
    - Upsert into `photos`, stamp `scan_indexed_at = now()`.
    - Skip rows where `scan_indexed_at IS NOT NULL` unless `--reindex`.
 
@@ -148,7 +149,13 @@ python scripts/merge_takeouts.py ~/Downloads/Takeout/Google\ Photos ~/Downloads/
      - Map Google people names → `person_id` via `google_name_aliases` in config → upsert `photo_people`
    - Photos without a sidecar: mark `google_metadata_indexed_at`, leave other fields unchanged
 
-3. **caption** (`app/indexer/caption.py` + `providers/`)
+3. **location** (`app/indexer/location.py`)
+   - For each photo with `lat`/`lng` and no `location_name`:
+     - Batch reverse geocode via `reverse_geocoder` (offline GeoNames dataset)
+     - Store `"{city}, {country_code}"` in `location_name`
+   - Runs after `google_metadata` so GPS from sidecars is available
+
+4. **caption** (`app/indexer/caption.py` + `providers/`)
    - Phase 1: OpenAI only (`gpt-4o` vision). Provider interface stays so Claude can be added later.
    - Provider interface: `caption(image_path) -> {"caption": str, "tags": list[str]}`.
    - Prompt: ask for one descriptive sentence + up to 8 tags (people-agnostic — no names at caption time).
@@ -156,7 +163,7 @@ python scripts/merge_takeouts.py ~/Downloads/Takeout/Google\ Photos ~/Downloads/
    - Store `caption`, `tags` (JSON), stamp `caption_indexed_at`.
    - Skip rows with non-null `caption_indexed_at` unless `--reindex`.
 
-4. **embed** (`app/indexer/embed.py`)
+5. **embed** (`app/indexer/embed.py`)
    - For rows with `caption IS NOT NULL` and `vector_indexed_at IS NULL` (or `--reindex`):
      - Build input text = `caption + " " + " ".join(tags)` so tag vocabulary participates in semantic space.
      - Embed via OpenAI `text-embedding-3-small`.
@@ -164,7 +171,7 @@ python scripts/merge_takeouts.py ~/Downloads/Takeout/Google\ Photos ~/Downloads/
      - Persist `embed_model` name in Chroma collection metadata on first use; on subsequent runs assert match — refuse mixed-model corpus.
      - Stamp `vector_indexed_at`.
 
-5. **all**: runs scan → google_metadata → caption → embed sequentially, preserving `--limit` semantics on caption step.
+6. **all**: runs scan → google_metadata → location → caption → embed sequentially, preserving `--limit` semantics on caption step.
 
 Idempotency test: running `--step all` twice in a row on the same photos dir must make zero API calls on the second run.
 

@@ -14,12 +14,13 @@ def run_caption(limit: int = DEFAULT_LIMIT, reindex: bool = False) -> int:
 
     if reindex:
         rows = conn.execute(
-            "SELECT id, storage_path FROM photos WHERE scan_indexed_at IS NOT NULL LIMIT ?",
+            "SELECT id, storage_path, lat, lng, location_name FROM photos "
+            "WHERE scan_indexed_at IS NOT NULL LIMIT ?",
             (limit,),
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT id, storage_path FROM photos "
+            "SELECT id, storage_path, lat, lng, location_name FROM photos "
             "WHERE scan_indexed_at IS NOT NULL AND caption_indexed_at IS NULL "
             "LIMIT ?",
             (limit,),
@@ -35,8 +36,12 @@ def run_caption(limit: int = DEFAULT_LIMIT, reindex: bool = False) -> int:
             skipped += 1
             continue
 
+        location_hint = row["location_name"] or (
+            f"{row['lat']:.4f},{row['lng']:.4f}" if row["lat"] and row["lng"] else None
+        )
+
         try:
-            result = provider.caption(path)
+            result = provider.caption(path, location_hint=location_hint)
         except Exception as e:
             print(f"  caption error {path.name}: {e}")
             skipped += 1
