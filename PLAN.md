@@ -25,7 +25,7 @@ User decisions from planning:
 family-photos-app/
 ├── pyproject.toml
 ├── uv.lock
-├── config.json                 # family_name, data_dir, photos_dir, caption_model, people[]
+├── config.json                 # family_name, data_dir, photos_dir, caption_model, people[], google_name_aliases
 ├── .env.example                # ANTHROPIC_API_KEY, OPENAI_API_KEY
 ├── README.md                   # (exists)
 ├── CLAUDE.md                   # (exists)
@@ -33,7 +33,10 @@ family-photos-app/
 ├── data/
 │   ├── photos.db               # SQLite (gitignored)
 │   ├── chroma/                 # ChromaDB folder (gitignored)
+│   ├── sidecars/               # {photo_id}.json from Google Takeout (gitignored)
 │   └── anchors/                # Phase 2 — created empty now
+├── scripts/
+│   └── merge_takeouts.py       # merge Google Takeout folders → photos/ + data/sidecars/
 ├── photos/                     # symlink to test set (gitignored)
 ├── app/
 │   ├── __init__.py
@@ -45,6 +48,7 @@ family-photos-app/
 │   │   ├── __init__.py
 │   │   ├── cli.py              # `python -m app.indexer` entry (argparse: --step, --limit, --reindex)
 │   │   ├── scan.py             # walk photos_dir, extract EXIF, upsert SQLite rows
+│   │   ├── google_metadata.py  # read data/sidecars/ → enrich taken_at, geoData, description, photo_people
 │   │   ├── caption.py          # vision LLM → caption/tags; provider interface (OpenAI only Phase 1)
 │   │   ├── embed.py            # caption+tags → embedding → ChromaDB upsert
 │   │   └── providers/
@@ -87,10 +91,13 @@ CREATE TABLE IF NOT EXISTS photos (
   tags                TEXT,                   -- JSON array
   happiness_score     REAL,                   -- Phase 3
   aesthetic_score     REAL,                   -- Phase 3
+  description         TEXT,                   -- user note from Google Photos sidecar
+  google_people       TEXT,                   -- raw JSON of Google face tags
   scan_indexed_at     TIMESTAMP,
   caption_indexed_at  TIMESTAMP,
   vector_indexed_at   TIMESTAMP,
-  face_indexed_at     TIMESTAMP               -- Phase 2
+  face_indexed_at     TIMESTAMP,              -- Phase 2
+  google_metadata_indexed_at TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS people (
@@ -115,7 +122,12 @@ CREATE INDEX idx_photo_people_person ON photo_people(person_id);
 
 ## Indexing Pipeline (Phase 1 steps)
 
-Entry: `uv run python -m app.indexer --step {scan|caption|embed|all} [--limit N] [--reindex]`.
+Entry: `uv run python -m app.indexer --step {scan|google_metadata|caption|embed|all} [--limit N] [--reindex]`.
+
+Before running the pipeline, merge Google Takeout folders:
+```bash
+python scripts/merge_takeouts.py ~/Downloads/Takeout/Google\ Photos ~/Downloads/"Takeout 2"/Google\ Photos ...
+```
 
 1. **scan** (`app/indexer/scan.py`)
    - Walk `photos_dir` (follow symlinks). Accept `.jpg .jpeg .png .heic`.
@@ -126,7 +138,17 @@ Entry: `uv run python -m app.indexer --step {scan|caption|embed|all} [--limit N]
    - Upsert into `photos`, stamp `scan_indexed_at = now()`.
    - Skip rows where `scan_indexed_at IS NOT NULL` unless `--reindex`.
 
-2. **caption** (`app/indexer/caption.py` + `providers/`)
+2. **google_metadata** (`app/indexer/google_metadata.py`)
+   - For each photo row with `google_metadata_indexed_at IS NULL`:
+     - Read `data/sidecars/{photo_id}.json` (written by `merge_takeouts.py`)
+     - Set `taken_at` from `photoTakenTime` if EXIF was absent — authoritative for old/scanned photos
+     - Set `lat`/`lng` from `geoData` if EXIF GPS absent
+     - Store `description` (user-written note from Google Photos)
+     - Store `google_people` (raw JSON of Google face tags)
+     - Map Google people names → `person_id` via `google_name_aliases` in config → upsert `photo_people`
+   - Photos without a sidecar: mark `google_metadata_indexed_at`, leave other fields unchanged
+
+3. **caption** (`app/indexer/caption.py` + `providers/`)
    - Phase 1: OpenAI only (`gpt-4o` vision). Provider interface stays so Claude can be added later.
    - Provider interface: `caption(image_path) -> {"caption": str, "tags": list[str]}`.
    - Prompt: ask for one descriptive sentence + up to 8 tags (people-agnostic — no names at caption time).
@@ -134,7 +156,7 @@ Entry: `uv run python -m app.indexer --step {scan|caption|embed|all} [--limit N]
    - Store `caption`, `tags` (JSON), stamp `caption_indexed_at`.
    - Skip rows with non-null `caption_indexed_at` unless `--reindex`.
 
-3. **embed** (`app/indexer/embed.py`)
+4. **embed** (`app/indexer/embed.py`)
    - For rows with `caption IS NOT NULL` and `vector_indexed_at IS NULL` (or `--reindex`):
      - Build input text = `caption + " " + " ".join(tags)` so tag vocabulary participates in semantic space.
      - Embed via OpenAI `text-embedding-3-small`.
@@ -142,7 +164,7 @@ Entry: `uv run python -m app.indexer --step {scan|caption|embed|all} [--limit N]
      - Persist `embed_model` name in Chroma collection metadata on first use; on subsequent runs assert match — refuse mixed-model corpus.
      - Stamp `vector_indexed_at`.
 
-4. **all**: runs scan → caption → embed sequentially, preserving `--limit` semantics on caption step.
+5. **all**: runs scan → google_metadata → caption → embed sequentially, preserving `--limit` semantics on caption step.
 
 Idempotency test: running `--step all` twice in a row on the same photos dir must make zero API calls on the second run.
 
@@ -201,9 +223,17 @@ No framework. Keep it ≤150 LOC so Phase 2 can rewrite as needed.
   "caption_model": "gpt-4o",
   "embed_model": "text-embedding-3-small",
   "face_tolerance": 0.5,
-  "people": []
+  "people": [
+    {"id": "yaron", "name": "Yaron Shapira"}
+  ],
+  "google_name_aliases": {
+    "yaron shapira": "yaron",
+    "נוי שפירא": "noa"
+  }
 }
 ```
+
+`google_name_aliases`: maps Google Photos free-text names (case-insensitive, Hebrew supported) to `person_id`. Used by `google_metadata` step.
 
 `.env` (gitignored): `OPENAI_API_KEY`. `app/config.py` loads with `python-dotenv` and asserts key present at startup. (Anthropic key slot reserved for later phase.)
 

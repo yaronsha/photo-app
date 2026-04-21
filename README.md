@@ -47,8 +47,9 @@ Each family gets their own `data/` folder. App code is shared. No entanglement b
 ### Data Flow
 
 ```
-Photo uploaded/scanned
+merge_takeouts.py       → photos/ (deduped) + data/sidecars/ (sidecar JSONs)
   → EXIF extract        → SQLite (date, GPS, location_name)
+  → Google metadata     → SQLite (taken_at, description, photo_people from Google tags)
   → AI caption          → SQLite (caption text)
   → Embedding           → ChromaDB (semantic vector)
   → Face detection      → SQLite (person_id per face)
@@ -126,10 +127,13 @@ photos (
   tags JSONB,
   happiness_score REAL,
   aesthetic_score REAL,
-  index_version INTEGER DEFAULT 0,
+  description TEXT,                    -- user note from Google Photos
+  google_people TEXT,                  -- raw Google face tags JSON
+  scan_indexed_at TIMESTAMP,
   caption_indexed_at TIMESTAMP,
   vector_indexed_at TIMESTAMP,
-  face_indexed_at TIMESTAMP
+  face_indexed_at TIMESTAMP,
+  google_metadata_indexed_at TIMESTAMP
 )
 
 people (id, name, family_id)

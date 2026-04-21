@@ -26,14 +26,34 @@ Local-first family photo search + games app. Python + FastAPI + SQLite + ChromaD
 Each step is independent and re-runnable:
 
 ```
+0. merge      → scripts/merge_takeouts.py → photos/ + data/sidecars/
 1. scan       → EXIF → SQLite
-2. caption    → Vision LLM → SQLite (caption, tags)
-3. embed      → caption → ChromaDB vector
-4. faces      → face_recognition → SQLite (photo_people)
-5. scores     → LLM or model → SQLite columns
+2. google_metadata → data/sidecars/{id}.json → SQLite (taken_at, lat/lng, description, photo_people)
+3. caption    → Vision LLM → SQLite (caption, tags)
+4. embed      → caption → ChromaDB vector
+5. faces      → face_recognition → SQLite (photo_people)
+6. scores     → LLM or model → SQLite columns
 ```
 
 Track progress with `*_indexed_at` timestamps. Skip already-indexed unless `--reindex` flag passed.
+
+### Google Takeout import
+
+```bash
+# Merge one or more Takeout folders (dedupes by SHA256)
+python scripts/merge_takeouts.py ~/Downloads/Takeout/Google\ Photos ~/Downloads/"Takeout 2"/Google\ Photos
+
+# Then run pipeline normally
+python -m app.indexer --step scan
+python -m app.indexer --step google_metadata   # enriches from sidecars, populates photo_people
+python -m app.indexer --step caption --limit 50
+```
+
+Sidecars live at `data/sidecars/{photo_id}.json`. `google_metadata` step reads them to populate:
+- `taken_at` — photoTakenTime (authoritative for old/scanned photos without EXIF)
+- `lat` / `lng` — geoData (supplements EXIF)
+- `description` — user-written note from Google Photos
+- `photo_people` — Google face tags mapped to person IDs via `google_name_aliases` in config
 
 ## Face Recognition
 
@@ -73,13 +93,20 @@ Keep ChromaDB metadata minimal — just fields needed for pre-filtering. Full re
   "family_name": "Shapira",
   "data_dir": "./data",
   "photos_dir": "./photos",
+  "caption_model": "gpt-4o",
+  "embed_model": "text-embedding-3-small",
+  "face_tolerance": 0.5,
   "people": [
-    {"id": "grandma", "name": "Grandma Sarah"}
+    {"id": "yaron", "name": "Yaron Shapira"}
   ],
-  "caption_model": "claude-3-5-sonnet-20241022",
-  "face_tolerance": 0.5
+  "google_name_aliases": {
+    "yaron shapira": "yaron",
+    "נוי שפירא": "noa"
+  }
 }
 ```
+
+`google_name_aliases` maps Google Photos free-text names (lowercased, Hebrew included) to person IDs. Used by `google_metadata` step to pre-populate `photo_people` from sidecar JSON.
 
 ## Common Tasks
 
