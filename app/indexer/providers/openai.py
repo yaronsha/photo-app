@@ -1,26 +1,48 @@
+import asyncio
 import base64
+import io
+import time
 from pathlib import Path
 
-from openai import OpenAI
+from openai import AsyncOpenAI, OpenAI
+from PIL import Image
 
 from ...config import get_settings
 
-_client: OpenAI | None = None
+_async_client: AsyncOpenAI | None = None
+_sync_client: OpenAI | None = None
 
 
-def _get_client() -> OpenAI:
-    global _client
-    if _client is None:
-        _client = OpenAI(api_key=get_settings().openai_api_key)
-    return _client
+def _get_async_client() -> AsyncOpenAI:
+    global _async_client
+    if _async_client is None:
+        _async_client = AsyncOpenAI(api_key=get_settings().openai_api_key)
+    return _async_client
+
+
+def _get_sync_client() -> OpenAI:
+    global _sync_client
+    if _sync_client is None:
+        _sync_client = OpenAI(api_key=get_settings().openai_api_key)
+    return _sync_client
+
+
+MAX_SIDE = 512
+
+
+def _resize(data: bytes) -> tuple[bytes, str]:
+    img = Image.open(io.BytesIO(data)).convert("RGB")
+    img.thumbnail((MAX_SIDE, MAX_SIDE), Image.LANCZOS)
+    out = io.BytesIO()
+    img.save(out, format="JPEG", quality=85)
+    return out.getvalue(), "image/jpeg"
 
 
 class OpenAIProvider:
-    def caption(self, image_path: Path, location_hint: str | None = None) -> dict:
-        data = image_path.read_bytes()
+    async def caption(self, image_path: Path, location_hint: str | None = None) -> dict:
+        raw = image_path.read_bytes()
+        data, mime = _resize(raw)
         b64 = base64.b64encode(data).decode()
-        ext = image_path.suffix.lower().lstrip(".")
-        mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
 
         location_line = (
             f"Location hint: {location_hint}. If you can identify the specific place, mention it in the caption.\n"
@@ -28,7 +50,8 @@ class OpenAIProvider:
         )
 
         model = get_settings().caption_model
-        resp = _get_client().chat.completions.create(
+        t0 = time.monotonic()
+        resp = await _get_async_client().chat.completions.create(
             model=model,
             messages=[
                 {
@@ -53,12 +76,21 @@ class OpenAIProvider:
             ],
             max_tokens=256,
         )
+        elapsed = time.monotonic() - t0
+        usage = resp.usage
+        print(
+            f"  [{elapsed:.1f}s] {image_path.name}"
+            + (f" | loc: {location_hint}" if location_hint else "")
+            + (f" | tokens in={usage.prompt_tokens} out={usage.completion_tokens}" if usage else "")
+        )
+
         text = resp.choices[0].message.content or ""
         return _parse_caption_response(text)
 
+
     def embed(self, text: str) -> list[float]:
         model = get_settings().embed_model
-        resp = _get_client().embeddings.create(model=model, input=text)
+        resp = _get_sync_client().embeddings.create(model=model, input=text)
         return resp.data[0].embedding
 
 
