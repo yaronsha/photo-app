@@ -33,6 +33,15 @@ def run_google_metadata(reindex: bool = False) -> int:
         print("google_metadata: no sidecars dir found — run merge_takeouts.py first")
         return 0
 
+    # Seed people table from config (idempotent)
+    for person in settings.people:
+        conn.execute(
+            "INSERT INTO people (id, name, family_id) VALUES (?, ?, ?)"
+            " ON CONFLICT(id) DO UPDATE SET name = excluded.name",
+            (person.id, person.name, person.family_id),
+        )
+    conn.commit()
+
     aliases: dict[str, str] = {
         k.lower(): v
         for k, v in getattr(settings, "google_name_aliases", {}).items()

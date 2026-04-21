@@ -55,10 +55,13 @@ class Settings(BaseModel):
 
 def load_settings() -> Settings:
     raw = json.loads(_CONFIG_PATH.read_text())
-    api_key = os.environ.get("OPENAI_API_KEY", "")
-    if not api_key:
+    return Settings(**raw, openai_api_key=os.environ.get("OPENAI_API_KEY", ""))
+
+
+def require_openai_key(settings: Settings) -> str:
+    if not settings.openai_api_key:
         raise RuntimeError("OPENAI_API_KEY not set — add to .env or environment")
-    return Settings(**raw, openai_api_key=api_key)
+    return settings.openai_api_key
 
 
 _settings: Settings | None = None
