@@ -1,4 +1,5 @@
 import os
+from datetime import date
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
@@ -9,6 +10,16 @@ from PIL import Image
 from ..config import get_settings
 from ..db import get_conn, init_schema, row_to_dict
 from ..search.query import search as do_search
+
+
+def _validate_iso_date(value: str | None, field: str) -> str | None:
+    if value is None or value == "":
+        return None
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"invalid {field}: expected YYYY-MM-DD")
+    return value
 
 app = FastAPI(title="Family Photos")
 
@@ -30,17 +41,19 @@ def people_endpoint():
 
 @app.get("/search")
 def search_endpoint(
-    q: str = Query(..., min_length=1),
+    q: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
-    year_from: int | None = Query(None),
-    year_to: int | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
     person_id: list[str] = Query(default=[]),
 ):
+    lo = _validate_iso_date(date_from, "date_from")
+    hi = _validate_iso_date(date_to, "date_to")
     results = do_search(
         q,
         limit=limit,
-        year_from=year_from,
-        year_to=year_to,
+        date_from=lo,
+        date_to=hi,
         person_ids=person_id or None,
     )
     return {

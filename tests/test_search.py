@@ -135,3 +135,100 @@ def test_search_empty_collection(tmp_env):
         results = query_mod.search("anything")
 
     assert results == []
+
+
+def _seed_multi(data_dir: Path, photos_dir: Path) -> list[str]:
+    db_path = data_dir / "photos.db"
+    conn = sqlite3.connect(str(db_path))
+    _create_schema(conn)
+    rows = [
+        ("id_feb2015", "feb15.jpg", "2015-02-10T12:00:00+00:00", "feb 2015"),
+        ("id_mar2015", "mar15.jpg", "2015-03-15T12:00:00+00:00", "mar 2015"),
+        ("id_mar2015b", "mar15b.jpg", "2015-03-28T12:00:00+00:00", "mar 2015 late"),
+        ("id_apr2015", "apr15.jpg", "2015-04-05T12:00:00+00:00", "apr 2015"),
+    ]
+    for pid, fname, taken, cap in rows:
+        conn.execute(
+            "INSERT INTO photos (id, storage_path, original_filename, caption, "
+            "taken_at, scan_indexed_at, caption_indexed_at, vector_indexed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (pid, str(photos_dir / fname), fname, cap, taken, taken, taken, taken),
+        )
+    conn.commit()
+    conn.close()
+    return [r[0] for r in rows]
+
+
+def test_browse_by_date_range_no_query(tmp_env):
+    ids = _seed_multi(tmp_env["data_dir"], tmp_env["photos_dir"])
+
+    import app.search.query as query_mod
+
+    mock_collection = MagicMock()
+    mock_embed_provider = MagicMock()
+
+    with (
+        patch.object(query_mod, "get_embed_provider", return_value=mock_embed_provider),
+        patch.object(query_mod, "get_collection", return_value=mock_collection),
+    ):
+        results = query_mod.search(
+            None, date_from="2015-03-01", date_to="2015-03-31"
+        )
+
+    result_ids = {r.id for r in results}
+    assert result_ids == {"id_mar2015", "id_mar2015b"}
+    assert results[0].taken_at > results[1].taken_at  # DESC
+    mock_collection.query.assert_not_called()
+    mock_embed_provider.embed.assert_not_called()
+
+
+def test_browse_empty_returns_nothing(tmp_env):
+    _seed_multi(tmp_env["data_dir"], tmp_env["photos_dir"])
+
+    import app.search.query as query_mod
+
+    assert query_mod.search(None) == []
+    assert query_mod.search("") == []
+
+
+def test_vector_search_filters_by_date(tmp_env):
+    ids = _seed_multi(tmp_env["data_dir"], tmp_env["photos_dir"])
+
+    mock_embed_provider = MagicMock()
+    mock_embed_provider.embed.return_value = [0.1] * 1536
+
+    mock_collection = MagicMock()
+    mock_collection.count.return_value = 4
+    mock_collection.query.return_value = {
+        "ids": [ids],
+        "distances": [[0.1, 0.2, 0.3, 0.4]],
+    }
+
+    import app.search.query as query_mod
+
+    with (
+        patch.object(query_mod, "get_embed_provider", return_value=mock_embed_provider),
+        patch.object(query_mod, "get_collection", return_value=mock_collection),
+    ):
+        results = query_mod.search(
+            "anything", date_from="2015-03-01", date_to="2015-03-31"
+        )
+
+    assert {r.id for r in results} == {"id_mar2015", "id_mar2015b"}
+
+
+def test_date_to_inclusive(tmp_env):
+    _seed_multi(tmp_env["data_dir"], tmp_env["photos_dir"])
+
+    import app.search.query as query_mod
+
+    with (
+        patch.object(query_mod, "get_embed_provider", return_value=MagicMock()),
+        patch.object(query_mod, "get_collection", return_value=MagicMock()),
+    ):
+        # date_to inclusive — 2015-03-28 should include the 2015-03-28T12:00 photo
+        results = query_mod.search(
+            None, date_from="2015-03-28", date_to="2015-03-28"
+        )
+
+    assert {r.id for r in results} == {"id_mar2015b"}

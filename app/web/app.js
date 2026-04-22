@@ -11,8 +11,9 @@ const activePeople = new Set();
 // ─────────────────────────────────────────────
 const form        = document.getElementById('search-form');
 const queryInput  = document.getElementById('query');
-const yearFrom    = document.getElementById('year-from');
-const yearTo      = document.getElementById('year-to');
+const dayFrom     = document.getElementById('day-from');
+const dayTo       = document.getElementById('day-to');
+const dayToggle   = document.getElementById('day-toggle');
 const grid        = document.getElementById('grid');
 const statusBar   = document.getElementById('status');
 const lightbox    = document.getElementById('lightbox');
@@ -112,16 +113,203 @@ function renderPeopleFilter() {
 // ─────────────────────────────────────────────
 form.addEventListener('submit', e => { e.preventDefault(); doSearch(); });
 
+// ─────────────────────────────────────────────
+// MONTH/YEAR PICKER
+// ─────────────────────────────────────────────
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+class MonthYearPicker {
+  constructor(wrapEl) {
+    this.wrap    = wrapEl;
+    this.btn     = wrapEl.querySelector('.mypicker-btn');
+    this.label   = wrapEl.querySelector('.mypicker-label');
+    this.popup   = wrapEl.querySelector('.mypicker-popup');
+    this.mGrid   = wrapEl.querySelector('.mp-months');
+    this.yGrid   = wrapEl.querySelector('.mp-years');
+    this.dLabel  = wrapEl.querySelector('.mp-decade-label');
+    this.prevBtn = wrapEl.querySelector('.mp-prev');
+    this.nextBtn = wrapEl.querySelector('.mp-next');
+    this.manual  = wrapEl.querySelector('.mp-manual');
+    this.clearBtn= wrapEl.querySelector('.mp-clear');
+
+    this.month  = null;
+    this.year   = null;
+    this.decade = Math.floor(new Date().getFullYear() / 10) * 10;
+
+    this._render();
+    this._bind();
+  }
+
+  getValue() {
+    if (this.month === null || this.year === null) return null;
+    return `${this.year}-${String(this.month + 1).padStart(2, '0')}`;
+  }
+
+  clear() {
+    this.month = null;
+    this.year  = null;
+    this.label.textContent = this.btn.getAttribute('aria-label') === 'From date' ? 'From…' : 'To…';
+    this._render();
+  }
+
+  open() {
+    this.popup.removeAttribute('hidden');
+    this.btn.setAttribute('aria-expanded', 'true');
+  }
+
+  close() {
+    this.popup.setAttribute('hidden', '');
+    this.btn.setAttribute('aria-expanded', 'false');
+  }
+
+  toggle() {
+    if (this.popup.hasAttribute('hidden')) this.open(); else this.close();
+  }
+
+  _updateLabel() {
+    if (this.month !== null && this.year !== null) {
+      this.label.textContent = `${MONTHS[this.month]} ${this.year}`;
+    }
+  }
+
+  _maybeClose() {
+    if (this.month !== null && this.year !== null) {
+      this._updateLabel();
+      this.close();
+    }
+  }
+
+  _render() {
+    this._renderMonths();
+    this._renderYears();
+  }
+
+  _renderMonths() {
+    this.mGrid.innerHTML = '';
+    MONTHS.forEach((name, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'mp-month-btn' + (this.month === i ? ' sel' : '');
+      b.textContent = name;
+      b.addEventListener('click', () => {
+        this.month = i;
+        this._renderMonths();
+        this._maybeClose();
+      });
+      this.mGrid.appendChild(b);
+    });
+  }
+
+  _renderYears() {
+    this.dLabel.textContent = `${this.decade}–${this.decade + 9}`;
+    this.yGrid.innerHTML = '';
+    for (let y = this.decade; y < this.decade + 12; y++) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'mp-year-btn' + (this.year === y ? ' sel' : '');
+      b.textContent = y;
+      b.addEventListener('click', () => {
+        this.year = y;
+        this.decade = Math.floor(y / 10) * 10;
+        if (this.manual.value != y) this.manual.value = y;
+        this._renderYears();
+        this._maybeClose();
+      });
+      this.yGrid.appendChild(b);
+    }
+  }
+
+  _bind() {
+    this.btn.addEventListener('click', e => { e.stopPropagation(); this.toggle(); });
+
+    this.prevBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      this.decade -= 10;
+      this._renderYears();
+    });
+    this.nextBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      this.decade += 10;
+      this._renderYears();
+    });
+
+    this.manual.addEventListener('input', () => {
+      const v = parseInt(this.manual.value, 10);
+      if (v >= 1900 && v <= 2099) {
+        this.decade = Math.floor(v / 10) * 10;
+        this._renderYears();
+      }
+    });
+    this.manual.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        const v = parseInt(this.manual.value, 10);
+        if (v >= 1900 && v <= 2099) {
+          this.year = v;
+          this.decade = Math.floor(v / 10) * 10;
+          this._renderYears();
+          this._maybeClose();
+        }
+        e.preventDefault();
+      }
+    });
+    this.manual.addEventListener('click', e => e.stopPropagation());
+
+    this.clearBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      this.clear();
+      this.close();
+    });
+  }
+}
+
+const pickerFrom = new MonthYearPicker(document.getElementById('picker-from'));
+const pickerTo   = new MonthYearPicker(document.getElementById('picker-to'));
+
+document.addEventListener('click', e => {
+  if (!pickerFrom.wrap.contains(e.target)) pickerFrom.close();
+  if (!pickerTo.wrap.contains(e.target))   pickerTo.close();
+});
+
+dayToggle.addEventListener('click', () => {
+  const pressed = dayToggle.getAttribute('aria-pressed') === 'true';
+  const next = !pressed;
+  dayToggle.setAttribute('aria-pressed', next ? 'true' : 'false');
+  dayToggle.textContent = next ? '− day' : '+ day';
+  if (next) { dayFrom.removeAttribute('hidden'); dayTo.removeAttribute('hidden'); }
+  else { dayFrom.setAttribute('hidden', ''); dayTo.setAttribute('hidden', ''); dayFrom.value = ''; dayTo.value = ''; }
+});
+
+function _lastDayOfMonth(year, month) {
+  return new Date(year, month, 0).getDate();
+}
+
+function _buildDate(monthVal, dayVal, side) {
+  if (!monthVal) return null;
+  const [y, m] = monthVal.split('-').map(Number);
+  if (!y || !m) return null;
+  let d;
+  if (dayVal && dayVal.trim()) {
+    d = Math.max(1, Math.min(31, parseInt(dayVal, 10)));
+  } else {
+    d = side === 'from' ? 1 : _lastDayOfMonth(y, m);
+  }
+  return `${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+}
+
 async function doSearch() {
   const q = queryInput.value.trim();
-  if (!q) return;
+  const dFrom = _buildDate(pickerFrom.getValue(), dayFrom.value, 'from');
+  const dTo   = _buildDate(pickerTo.getValue(),   dayTo.value,   'to');
+  const hasPerson = activePeople.size > 0;
+
+  if (!q && !dFrom && !dTo && !hasPerson) return;
 
   showSkeletons();
 
-  const params = new URLSearchParams({ q, limit: 50 });
-  if (yearFrom.value) params.set('year_from', yearFrom.value);
-  if (yearTo.value)   params.set('year_to',   yearTo.value);
-  // When /search gains person_id support these will be picked up
+  const params = new URLSearchParams({ limit: 50 });
+  if (q)     params.set('q', q);
+  if (dFrom) params.set('date_from', dFrom);
+  if (dTo)   params.set('date_to',   dTo);
   activePeople.forEach(id => params.append('person_id', id));
 
   try {
@@ -131,9 +319,9 @@ async function doSearch() {
     results = data.results || [];
     renderResults();
 
-    // Persist query in URL
     const url = new URL(location);
-    url.searchParams.set('q', q);
+    if (q) url.searchParams.set('q', q);
+    else   url.searchParams.delete('q');
     history.replaceState(null, '', url);
   } catch (err) {
     grid.innerHTML = '';

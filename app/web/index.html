@@ -59,11 +59,58 @@
             <div class="chip-list" id="people-chips" role="group" aria-labelledby="people-label"></div>
           </div>
           <div class="filter-row">
-            <span class="filter-label" id="years-label">Years</span>
-            <div class="year-range" role="group" aria-labelledby="years-label">
-              <input type="number" id="year-from" class="year-input" placeholder="1950" min="1900" max="2100" aria-label="From year">
+            <span class="filter-label" id="date-label">Date</span>
+            <div class="year-range" role="group" aria-labelledby="date-label">
+
+              <!-- FROM picker -->
+              <div class="mypicker-wrap" id="picker-from">
+                <button type="button" class="mypicker-btn" aria-haspopup="true" aria-expanded="false" aria-label="From date">
+                  <span class="mypicker-label">From…</span>
+                  <svg class="mypicker-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                    <path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/>
+                  </svg>
+                </button>
+                <div class="mypicker-popup" hidden role="dialog" aria-label="Select from date">
+                  <div class="mp-months"></div>
+                  <div class="mp-divider"></div>
+                  <div class="mp-decade-row">
+                    <button type="button" class="mp-decade-arrow mp-prev" aria-label="Previous decade">‹</button>
+                    <span class="mp-decade-label"></span>
+                    <button type="button" class="mp-decade-arrow mp-next" aria-label="Next decade">›</button>
+                  </div>
+                  <div class="mp-years"></div>
+                  <input type="number" class="mp-manual year-input" placeholder="type year" min="1900" max="2099" aria-label="Type year">
+                  <button type="button" class="mp-clear">Clear</button>
+                </div>
+              </div>
+              <input type="number" id="day-from" class="year-input day-input" min="1" max="31" placeholder="day" aria-label="From day" hidden>
+
               <span class="year-dash" aria-hidden="true">—</span>
-              <input type="number" id="year-to" class="year-input" placeholder="2024" min="1900" max="2100" aria-label="To year">
+
+              <!-- TO picker -->
+              <div class="mypicker-wrap" id="picker-to">
+                <button type="button" class="mypicker-btn" aria-haspopup="true" aria-expanded="false" aria-label="To date">
+                  <span class="mypicker-label">To…</span>
+                  <svg class="mypicker-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                    <path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/>
+                  </svg>
+                </button>
+                <div class="mypicker-popup" hidden role="dialog" aria-label="Select to date">
+                  <div class="mp-months"></div>
+                  <div class="mp-divider"></div>
+                  <div class="mp-decade-row">
+                    <button type="button" class="mp-decade-arrow mp-prev" aria-label="Previous decade">‹</button>
+                    <span class="mp-decade-label"></span>
+                    <button type="button" class="mp-decade-arrow mp-next" aria-label="Next decade">›</button>
+                  </div>
+                  <div class="mp-years"></div>
+                  <input type="number" class="mp-manual year-input" placeholder="type year" min="1900" max="2099" aria-label="Type year">
+                  <button type="button" class="mp-clear">Clear</button>
+                </div>
+              </div>
+              <input type="number" id="day-to" class="year-input day-input" min="1" max="31" placeholder="day" aria-label="To day" hidden>
+
+              <button type="button" id="day-toggle" class="day-toggle" aria-pressed="false">+ day</button>
             </div>
           </div>
         </div>

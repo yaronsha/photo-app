@@ -294,6 +294,151 @@ body::after {
 
 .year-dash { color: var(--espresso-mid); opacity: .35; }
 
+.day-input { width: 52px; }
+.day-toggle {
+  background: none;
+  border: none;
+  color: var(--espresso-mid);
+  font-family: var(--font-body);
+  font-size: .78rem;
+  padding: .25rem .4rem;
+  margin-left: .35rem;
+  cursor: pointer;
+  opacity: .7;
+  transition: opacity .15s, color .15s;
+}
+.day-toggle:hover { color: var(--amber); opacity: 1; }
+.day-toggle[aria-pressed="true"] { color: var(--amber); opacity: 1; }
+
+/* ─── Month/Year Picker ─── */
+.mypicker-wrap { position: relative; display: inline-block; }
+
+.mypicker-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--card-bg);
+  font-family: var(--font-body);
+  font-size: .83rem;
+  color: var(--espresso);
+  padding: .28rem .55rem;
+  cursor: pointer;
+  min-width: 118px;
+  transition: border-color .2s;
+}
+.mypicker-btn:hover,
+.mypicker-btn[aria-expanded="true"] { border-color: var(--amber); }
+
+.mypicker-icon { width: 14px; height: 14px; color: var(--espresso-mid); flex-shrink: 0; }
+.mypicker-label { flex: 1; text-align: left; }
+
+.mypicker-popup {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 300;
+  background: var(--card-bg);
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-md);
+  padding: .7rem .75rem .6rem;
+  width: 220px;
+}
+
+.mp-months {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: .28rem;
+}
+.mp-month-btn {
+  padding: .3rem .2rem;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: .78rem;
+  color: var(--espresso);
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.mp-month-btn:hover { background: var(--amber-pale); color: var(--amber); }
+.mp-month-btn.sel   { background: var(--amber); color: #fff; }
+
+.mp-divider { border: none; border-top: 1px solid var(--border); margin: .55rem 0; }
+
+.mp-decade-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: .35rem;
+}
+.mp-decade-label {
+  font-family: var(--font-body);
+  font-size: .78rem;
+  color: var(--espresso-mid);
+  letter-spacing: .02em;
+}
+.mp-decade-arrow {
+  background: none;
+  border: none;
+  color: var(--espresso-mid);
+  font-size: 1rem;
+  line-height: 1;
+  padding: .1rem .35rem;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  transition: color .15s, background .15s;
+}
+.mp-decade-arrow:hover { color: var(--amber); background: var(--amber-pale); }
+
+.mp-years {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: .28rem;
+}
+.mp-year-btn {
+  padding: .3rem .2rem;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: .8rem;
+  color: var(--espresso);
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.mp-year-btn:hover { background: var(--amber-pale); color: var(--amber); }
+.mp-year-btn.sel   { background: var(--amber); color: #fff; }
+
+.mp-manual {
+  display: block;
+  width: 100%;
+  margin-top: .5rem;
+  box-sizing: border-box;
+  text-align: left;
+}
+.mp-manual::placeholder { color: var(--espresso-mid); opacity: .4; }
+
+.mp-clear {
+  display: block;
+  width: 100%;
+  margin-top: .4rem;
+  background: none;
+  border: none;
+  font-family: var(--font-body);
+  font-size: .75rem;
+  color: var(--espresso-mid);
+  cursor: pointer;
+  text-align: center;
+  padding: .25rem;
+  border-radius: var(--r-sm);
+  opacity: .7;
+  transition: color .15s, opacity .15s;
+}
+.mp-clear:hover { color: var(--amber); opacity: 1; }
+
 /* ═══════════════════════════════════════════════
    STATUS BAR
 ═══════════════════════════════════════════════ */
