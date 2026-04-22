@@ -2,6 +2,29 @@
 
 Read README.md and FACE_RECOGNITION.md before starting any task.
 
+## Planning Discipline
+
+- When asked to create a plan, keep it high-level (goals, phases, deliverables) — do NOT include implementation details (specific function signatures, code snippets, file-level internals) unless explicitly requested.
+- Put face recognition, indexing internals, and other technical deep-dives in separate MD files, not in CLAUDE.md or top-level PLAN.md.
+
+## Verification Before Action
+
+- Before running any multi-step job (embed, caption, batch test), confirm the plan with me and add/verify logging first.
+- When analyzing screenshots or multi-file evidence, review ALL items before summarizing — do not generalize from one sample.
+- Do NOT verify external APIs (e.g., Google Photos API) from memory — provide a link to current docs confirming availability.
+
+## Autonomous Action Limits
+
+- Do NOT add score thresholds, delete methods during refactors, or change search/embedding behavior without explicit approval.
+- Keep SQLite transactions short in embed/caption pipelines to avoid lock contention.
+- When the user asks 'which?' or a clarifying question, re-list the items — do not deflect.
+
+## Communication Style
+
+### Suggest, Don't Just Ask
+
+- When the user describes a goal (e.g., 'quiz game platform'), propose 2-3 concrete options with tradeoffs BEFORE asking clarifying questions.
+
 ## Project Summary
 
 Local-first family photo search + games app. Python + FastAPI + SQLite + ChromaDB + face_recognition. ~100K photos / 200GB. Personal project, forkable per family.

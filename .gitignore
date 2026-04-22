@@ -1,5 +1,6 @@
 data/
 photos/
+photos.db
 .DS_Store
 .env
 __pycache__/
