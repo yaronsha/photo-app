@@ -34,9 +34,7 @@ def tmp_env(tmp_path, monkeypatch):
     return {"data_dir": data_dir, "photos_dir": photos_dir}
 
 
-def _seed_db(data_dir: Path, photos_dir: Path) -> str:
-    db_path = data_dir / "photos.db"
-    conn = sqlite3.connect(str(db_path))
+def _create_schema(conn):
     conn.execute("""
         CREATE TABLE IF NOT EXISTS photos (
             id TEXT PRIMARY KEY, storage_path TEXT NOT NULL UNIQUE,
@@ -48,6 +46,24 @@ def _seed_db(data_dir: Path, photos_dir: Path) -> str:
             vector_indexed_at TIMESTAMP, face_indexed_at TIMESTAMP
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS people (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, family_id TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS photo_people (
+            photo_id TEXT NOT NULL, person_id TEXT NOT NULL,
+            face_bbox TEXT, confidence REAL,
+            PRIMARY KEY (photo_id, person_id)
+        )
+    """)
+
+
+def _seed_db(data_dir: Path, photos_dir: Path) -> str:
+    db_path = data_dir / "photos.db"
+    conn = sqlite3.connect(str(db_path))
+    _create_schema(conn)
     photo_path = str(photos_dir / "beach.jpg")
     conn.execute(
         "INSERT INTO photos (id, storage_path, original_filename, caption, tags, "
