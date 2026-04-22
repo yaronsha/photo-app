@@ -3,7 +3,7 @@ import sqlite3
 import struct
 import zlib
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -64,10 +64,10 @@ def test_caption_mocked_provider(tmp_env):
     scan_mod.run_scan()
 
     mock_provider = MagicMock()
-    mock_provider.caption.return_value = {
+    mock_provider.caption = AsyncMock(return_value={
         "caption": "A sunny beach scene",
         "tags": ["beach", "sunny", "ocean"],
-    }
+    })
 
     import app.indexer.caption as caption_mod
 
@@ -93,7 +93,7 @@ def test_caption_skips_already_captioned(tmp_env):
     scan_mod.run_scan()
 
     mock_provider = MagicMock()
-    mock_provider.caption.return_value = {"caption": "First caption", "tags": []}
+    mock_provider.caption = AsyncMock(return_value={"caption": "First caption", "tags": []})
 
     import app.indexer.caption as caption_mod
 
@@ -117,7 +117,7 @@ def test_caption_limit_respected(tmp_env):
     scan_mod.run_scan()
 
     mock_provider = MagicMock()
-    mock_provider.caption.return_value = {"caption": "A photo", "tags": []}
+    mock_provider.caption = AsyncMock(return_value={"caption": "A photo", "tags": []})
 
     import app.indexer.caption as caption_mod
 
