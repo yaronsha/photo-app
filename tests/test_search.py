@@ -232,3 +232,103 @@ def test_date_to_inclusive(tmp_env):
         )
 
     assert {r.id for r in results} == {"id_mar2015b"}
+
+
+def _seed_people_db(data_dir: Path, photos_dir: Path) -> dict:
+    """3 photos: photo_ab (alice+bob), photo_a (alice only), photo_b (bob only)."""
+    db_path = data_dir / "photos.db"
+    conn = sqlite3.connect(str(db_path))
+    _create_schema(conn)
+    for pid, fname, taken in [
+        ("photo_ab", "ab.jpg", "2020-01-01T12:00:00+00:00"),
+        ("photo_a",  "a.jpg",  "2020-01-02T12:00:00+00:00"),
+        ("photo_b",  "b.jpg",  "2020-01-03T12:00:00+00:00"),
+    ]:
+        conn.execute(
+            "INSERT INTO photos (id, storage_path, original_filename, caption, "
+            "taken_at, scan_indexed_at, caption_indexed_at, vector_indexed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (pid, str(photos_dir / fname), fname, "caption", taken, taken, taken, taken),
+        )
+    conn.execute("INSERT INTO people VALUES ('alice', 'Alice', NULL)")
+    conn.execute("INSERT INTO people VALUES ('bob',   'Bob',   NULL)")
+    for photo_id, person_id in [
+        ("photo_ab", "alice"), ("photo_ab", "bob"),
+        ("photo_a",  "alice"),
+        ("photo_b",  "bob"),
+    ]:
+        conn.execute(
+            "INSERT INTO photo_people (photo_id, person_id) VALUES (?, ?)",
+            (photo_id, person_id),
+        )
+    conn.commit()
+    conn.close()
+    return {"photo_ab": "photo_ab", "photo_a": "photo_a", "photo_b": "photo_b"}
+
+
+def test_browse_people_any_mode(tmp_env):
+    _seed_people_db(tmp_env["data_dir"], tmp_env["photos_dir"])
+
+    import app.search.query as query_mod
+
+    with (
+        patch.object(query_mod, "get_embed_provider", return_value=MagicMock()),
+        patch.object(query_mod, "get_collection", return_value=MagicMock()),
+    ):
+        results = query_mod.search(
+            None,
+            date_from="2020-01-01",
+            date_to="2020-01-03",
+            person_ids=["alice", "bob"],
+            people_mode="any",
+        )
+
+    assert {r.id for r in results} == {"photo_ab", "photo_a", "photo_b"}
+
+
+def test_browse_people_all_mode(tmp_env):
+    _seed_people_db(tmp_env["data_dir"], tmp_env["photos_dir"])
+
+    import app.search.query as query_mod
+
+    with (
+        patch.object(query_mod, "get_embed_provider", return_value=MagicMock()),
+        patch.object(query_mod, "get_collection", return_value=MagicMock()),
+    ):
+        results = query_mod.search(
+            None,
+            date_from="2020-01-01",
+            date_to="2020-01-03",
+            person_ids=["alice", "bob"],
+            people_mode="all",
+        )
+
+    assert {r.id for r in results} == {"photo_ab"}
+
+
+def test_vector_search_people_all_mode(tmp_env):
+    _seed_people_db(tmp_env["data_dir"], tmp_env["photos_dir"])
+
+    mock_embed_provider = MagicMock()
+    mock_embed_provider.embed.return_value = [0.1] * 1536
+
+    mock_collection = MagicMock()
+    mock_collection.count.return_value = 3
+    mock_collection.query.return_value = {
+        "ids": [["photo_ab", "photo_a", "photo_b"]],
+        "distances": [[0.1, 0.2, 0.3]],
+    }
+
+    import app.search.query as query_mod
+
+    with (
+        patch.object(query_mod, "get_embed_provider", return_value=mock_embed_provider),
+        patch.object(query_mod, "get_collection", return_value=mock_collection),
+    ):
+        results = query_mod.search(
+            "family",
+            person_ids=["alice", "bob"],
+            people_mode="all",
+        )
+
+    assert {r.id for r in results} == {"photo_ab"}

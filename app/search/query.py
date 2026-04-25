@@ -27,6 +27,7 @@ def search(
     date_from: str | None = None,
     date_to: str | None = None,
     person_ids: list[str] | None = None,
+    people_mode: str = "any",
 ) -> list[SearchResult]:
     lo, hi = _date_bounds(date_from, date_to)
     has_date = lo is not None or hi is not None
@@ -39,9 +40,9 @@ def search(
     conn = get_conn()
 
     if not has_query:
-        results = _browse(conn, lo, hi, person_ids, limit)
+        results = _browse(conn, lo, hi, person_ids, limit, people_mode)
     else:
-        results = _vector_search(conn, query, lo, hi, person_ids, limit)
+        results = _vector_search(conn, query, lo, hi, person_ids, limit, people_mode)
 
     conn.close()
     return results
@@ -72,6 +73,7 @@ def _browse(
     hi: str | None,
     person_ids: list[str] | None,
     limit: int,
+    people_mode: str = "any",
 ) -> list[SearchResult]:
     where: list[str] = ["taken_at IS NOT NULL"]
     params: list = []
@@ -84,9 +86,16 @@ def _browse(
         params.append(hi)
     if person_ids:
         person_placeholders = ",".join("?" * len(person_ids))
-        where.append(
-            f"id IN (SELECT photo_id FROM photo_people WHERE person_id IN ({person_placeholders}))"
-        )
+        if people_mode == "all":
+            where.append(
+                f"id IN (SELECT photo_id FROM photo_people "
+                f"WHERE person_id IN ({person_placeholders}) "
+                f"GROUP BY photo_id HAVING COUNT(DISTINCT person_id) = {len(person_ids)})"
+            )
+        else:
+            where.append(
+                f"id IN (SELECT photo_id FROM photo_people WHERE person_id IN ({person_placeholders}))"
+            )
         params.extend(person_ids)
 
     sql = (
@@ -125,6 +134,7 @@ def _vector_search(
     hi: str | None,
     person_ids: list[str] | None,
     limit: int,
+    people_mode: str = "any",
 ) -> list[SearchResult]:
     provider = get_embed_provider()
     qvec = provider.embed(query)
@@ -155,9 +165,16 @@ def _vector_search(
         params.append(hi)
     if person_ids:
         person_placeholders = ",".join("?" * len(person_ids))
-        where.append(
-            f"id IN (SELECT photo_id FROM photo_people WHERE person_id IN ({person_placeholders}))"
-        )
+        if people_mode == "all":
+            where.append(
+                f"id IN (SELECT photo_id FROM photo_people "
+                f"WHERE person_id IN ({person_placeholders}) "
+                f"GROUP BY photo_id HAVING COUNT(DISTINCT person_id) = {len(person_ids)})"
+            )
+        else:
+            where.append(
+                f"id IN (SELECT photo_id FROM photo_people WHERE person_id IN ({person_placeholders}))"
+            )
         params.extend(person_ids)
 
     sql = f"SELECT * FROM photos WHERE {' AND '.join(where)}"
