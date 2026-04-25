@@ -270,6 +270,22 @@ body::after {
 }
 .chip:hover      { border-color: var(--amber); color: var(--amber); }
 .chip.is-active  { background: var(--amber); border-color: var(--amber); color: #fff; }
+.mode-toggle {
+  font-family: var(--font-body);
+  font-size: .8rem;
+  padding: .22rem .7rem;
+  border-radius: 20px;
+  border: 1.5px solid var(--espresso-mid);
+  background: transparent;
+  color: var(--espresso-mid);
+  cursor: pointer;
+  transition: border-color .18s, color .18s, background .18s;
+  white-space: nowrap;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+.mode-toggle:hover  { border-color: var(--amber); color: var(--amber); }
+.mode-toggle.is-all { background: var(--espresso-mid); border-color: var(--espresso-mid); color: #fff; }
 
 /* Year range */
 .year-range { display: flex; align-items: center; gap: .45rem; }

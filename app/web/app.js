@@ -5,6 +5,7 @@ let results = [];
 let lbIndex = -1;
 let people  = [];
 const activePeople = new Set();
+let peopleMode = 'any';
 
 // ─────────────────────────────────────────────
 // DOM
@@ -85,6 +86,19 @@ function renderPeopleFilter() {
   const chips     = document.getElementById('people-chips');
   filterRow.removeAttribute('hidden');
   chips.innerHTML = '';
+
+  const modeBtn = document.createElement('button');
+  modeBtn.type = 'button';
+  modeBtn.className = 'mode-toggle';
+  modeBtn.id = 'people-mode-toggle';
+  modeBtn.textContent = 'Any';
+  modeBtn.addEventListener('click', () => {
+    peopleMode = peopleMode === 'any' ? 'all' : 'any';
+    modeBtn.textContent = peopleMode === 'any' ? 'Any' : 'All';
+    modeBtn.classList.toggle('is-all', peopleMode === 'all');
+  });
+  filterRow.insertBefore(modeBtn, chips);
+
   people.forEach(p => {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -311,6 +325,9 @@ async function doSearch() {
   if (dFrom) params.set('date_from', dFrom);
   if (dTo)   params.set('date_to',   dTo);
   activePeople.forEach(id => params.append('person_id', id));
+  if (activePeople.size > 0 && peopleMode === 'all') {
+    params.set('people_mode', 'all');
+  }
 
   try {
     const resp = await fetch(`/search?${params}`);
