@@ -46,6 +46,7 @@ def search_endpoint(
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
     person_id: list[str] = Query(default=[]),
+    people_mode: str = Query("any"),
 ):
     lo = _validate_iso_date(date_from, "date_from")
     hi = _validate_iso_date(date_to, "date_to")
@@ -55,6 +56,7 @@ def search_endpoint(
         date_from=lo,
         date_to=hi,
         person_ids=person_id or None,
+        people_mode=people_mode,
     )
     return {
         "results": [
