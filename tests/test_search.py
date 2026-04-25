@@ -332,3 +332,45 @@ def test_vector_search_people_all_mode(tmp_env):
         )
 
     assert {r.id for r in results} == {"photo_ab"}
+
+
+def test_browse_people_all_mode_single_person(tmp_env):
+    """all mode with N=1 should behave identically to any mode."""
+    _seed_people_db(tmp_env["data_dir"], tmp_env["photos_dir"])
+
+    import app.search.query as query_mod
+
+    with (
+        patch.object(query_mod, "get_embed_provider", return_value=MagicMock()),
+        patch.object(query_mod, "get_collection", return_value=MagicMock()),
+    ):
+        results = query_mod.search(
+            None,
+            date_from="2020-01-01",
+            date_to="2020-01-03",
+            person_ids=["alice"],
+            people_mode="all",
+        )
+
+    assert {r.id for r in results} == {"photo_ab", "photo_a"}
+
+
+def test_browse_people_default_mode_is_any(tmp_env):
+    """Default people_mode should be 'any' (no explicit argument)."""
+    _seed_people_db(tmp_env["data_dir"], tmp_env["photos_dir"])
+
+    import app.search.query as query_mod
+
+    with (
+        patch.object(query_mod, "get_embed_provider", return_value=MagicMock()),
+        patch.object(query_mod, "get_collection", return_value=MagicMock()),
+    ):
+        results = query_mod.search(
+            None,
+            date_from="2020-01-01",
+            date_to="2020-01-03",
+            person_ids=["alice", "bob"],
+            # no people_mode argument — default should be "any"
+        )
+
+    assert {r.id for r in results} == {"photo_ab", "photo_a", "photo_b"}

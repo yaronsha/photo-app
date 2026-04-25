@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from typing import Literal
 
 from ..chroma import get_collection
 from ..db import get_conn, row_to_dict
@@ -27,7 +28,7 @@ def search(
     date_from: str | None = None,
     date_to: str | None = None,
     person_ids: list[str] | None = None,
-    people_mode: str = "any",
+    people_mode: Literal["any", "all"] = "any",
 ) -> list[SearchResult]:
     lo, hi = _date_bounds(date_from, date_to)
     has_date = lo is not None or hi is not None
@@ -73,7 +74,7 @@ def _browse(
     hi: str | None,
     person_ids: list[str] | None,
     limit: int,
-    people_mode: str = "any",
+    people_mode: Literal["any", "all"] = "any",
 ) -> list[SearchResult]:
     where: list[str] = ["taken_at IS NOT NULL"]
     params: list = []
@@ -134,13 +135,15 @@ def _vector_search(
     hi: str | None,
     person_ids: list[str] | None,
     limit: int,
-    people_mode: str = "any",
+    people_mode: Literal["any", "all"] = "any",
 ) -> list[SearchResult]:
     provider = get_embed_provider()
     qvec = provider.embed(query)
 
     collection = get_collection()
     has_filter = lo is not None or hi is not None or bool(person_ids)
+    # "all" mode is far more selective than "any"; overfetch may still under-return
+    # for very strict multi-person intersections in large collections.
     overfetch = min(limit * 4, 200) if has_filter else limit
     n = min(overfetch, collection.count() or 1)
 
