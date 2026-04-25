@@ -92,6 +92,7 @@ function renderPeopleFilter() {
   modeBtn.className = 'mode-toggle';
   modeBtn.id = 'people-mode-toggle';
   modeBtn.textContent = 'Any';
+  modeBtn.setAttribute('aria-label', 'People filter mode');
   modeBtn.addEventListener('click', () => {
     peopleMode = peopleMode === 'any' ? 'all' : 'any';
     modeBtn.textContent = peopleMode === 'any' ? 'Any' : 'All';

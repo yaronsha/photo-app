@@ -50,6 +50,8 @@ def search_endpoint(
 ):
     lo = _validate_iso_date(date_from, "date_from")
     hi = _validate_iso_date(date_to, "date_to")
+    if people_mode not in ("any", "all"):
+        raise HTTPException(status_code=400, detail="people_mode must be 'any' or 'all'")
     results = do_search(
         q,
         limit=limit,
