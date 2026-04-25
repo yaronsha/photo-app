@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from PIL import Image
+from PIL import Image, ImageOps
 
 from ..config import get_settings
 from ..db import get_conn, init_schema, row_to_dict
@@ -154,6 +154,7 @@ def _resolve_photo_path(photo_id: str) -> Path:
 def _generate_thumb(src: Path, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     img = Image.open(src)
+    img = ImageOps.exif_transpose(img)
     img.thumbnail((400, 400))
     img = img.convert("RGB")
     img.save(str(dest), "JPEG", quality=85)
