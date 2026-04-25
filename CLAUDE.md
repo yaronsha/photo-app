@@ -68,9 +68,9 @@ Track progress with `*_indexed_at` timestamps. Skip already-indexed unless `--re
 python scripts/merge_takeouts.py ~/Downloads/Takeout/Google\ Photos ~/Downloads/"Takeout 2"/Google\ Photos
 
 # Then run pipeline normally
-python -m app.indexer --step scan
-python -m app.indexer --step google_metadata   # enriches from sidecars, populates photo_people
-python -m app.indexer --step caption --limit 50
+uv run photos-index --step scan
+uv run photos-index --step google_metadata   # enriches from sidecars, populates photo_people
+uv run photos-index --step caption --limit 50
 ```
 
 Sidecars live at `data/sidecars/{photo_id}.json`. `google_metadata` step reads them to populate:
@@ -137,12 +137,12 @@ Keep ChromaDB metadata minimal — just fields needed for pre-filtering. Full re
 **Add new person:**
 1. Add entry to `config.json` people list
 2. Add anchor photos to `data/anchors/{person_id}/`
-3. Run `python index.py --step faces --reindex` (re-runs all faces, minutes not hours)
+3. Run `uv run photos-index --step faces --reindex` (re-runs all faces, minutes not hours)
 
 **Re-run captions with new prompt:**
 1. Update prompt in `app/indexer/caption.py`
-2. Run `python index.py --step caption --reindex --limit 50` (test first)
-3. Run `python index.py --step embed --reindex` (re-embed new captions)
+2. Run `uv run photos-index --step caption --reindex --limit 50` (test first)
+3. Run `uv run photos-index --step embed --reindex` (re-embed new captions)
 
 **Add new game type:**
 1. Create `app/games/{game_name}.py`
