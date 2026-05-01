@@ -55,6 +55,26 @@ def tmp_env(tmp_path, monkeypatch):
     return {"photos_dir": photos_dir, "data_dir": data_dir}
 
 
+_FULL_RESPONSE = {
+    "caption": "A sunny beach scene",
+    "tags": ["beach", "sunny", "ocean"],
+    "activities": ["swimming", "playing"],
+    "content_type": "photo",
+    "subject_type": "candid_people",
+    "primary_focus": "people",
+    "indoor_outdoor": "outdoor",
+    "setting_type": "beach",
+    "sharpness": "sharp",
+    "face_clarity_score": 4,
+}
+
+
+def _minimal_response(**overrides):
+    out = dict(_FULL_RESPONSE)
+    out.update(overrides)
+    return out
+
+
 def test_caption_mocked_provider(tmp_env):
     photos_dir = tmp_env["photos_dir"]
     img = photos_dir / "photo.png"
@@ -64,10 +84,7 @@ def test_caption_mocked_provider(tmp_env):
     scan_mod.run_scan()
 
     mock_provider = MagicMock()
-    mock_provider.caption = AsyncMock(return_value={
-        "caption": "A sunny beach scene",
-        "tags": ["beach", "sunny", "ocean"],
-    })
+    mock_provider.caption = AsyncMock(return_value=_FULL_RESPONSE)
 
     import app.indexer.caption as caption_mod
 
@@ -79,9 +96,50 @@ def test_caption_mocked_provider(tmp_env):
 
     conn = sqlite3.connect(str(tmp_env["data_dir"] / "photos.db"))
     conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT caption, tags FROM photos").fetchone()
+    row = conn.execute(
+        "SELECT caption, tags, activities, content_type, subject_type, "
+        "primary_focus, indoor_outdoor, setting_type, sharpness, "
+        "face_clarity_score, caption_schema_version FROM photos"
+    ).fetchone()
     assert row["caption"] == "A sunny beach scene"
     assert json.loads(row["tags"]) == ["beach", "sunny", "ocean"]
+    assert json.loads(row["activities"]) == ["swimming", "playing"]
+    assert row["content_type"] == "photo"
+    assert row["subject_type"] == "candid_people"
+    assert row["primary_focus"] == "people"
+    assert row["indoor_outdoor"] == "outdoor"
+    assert row["setting_type"] == "beach"
+    assert row["sharpness"] == "sharp"
+    assert row["face_clarity_score"] == 4
+    assert row["caption_schema_version"] == caption_mod.CAPTION_SCHEMA_VERSION
+    conn.close()
+
+
+def test_caption_face_clarity_null_when_no_faces(tmp_env):
+    photos_dir = tmp_env["photos_dir"]
+    _make_png(photos_dir / "photo.png")
+
+    import app.indexer.scan as scan_mod
+    scan_mod.run_scan()
+
+    mock_provider = MagicMock()
+    mock_provider.caption = AsyncMock(
+        return_value=_minimal_response(
+            subject_type="landscape",
+            primary_focus="place",
+            face_clarity_score=None,
+        )
+    )
+
+    import app.indexer.caption as caption_mod
+
+    with patch.object(caption_mod, "get_caption_provider", return_value=mock_provider):
+        caption_mod.run_caption(limit=1)
+
+    conn = sqlite3.connect(str(tmp_env["data_dir"] / "photos.db"))
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT face_clarity_score FROM photos").fetchone()
+    assert row["face_clarity_score"] is None
     conn.close()
 
 
@@ -93,7 +151,7 @@ def test_caption_skips_already_captioned(tmp_env):
     scan_mod.run_scan()
 
     mock_provider = MagicMock()
-    mock_provider.caption = AsyncMock(return_value={"caption": "First caption", "tags": []})
+    mock_provider.caption = AsyncMock(return_value=_FULL_RESPONSE)
 
     import app.indexer.caption as caption_mod
 
@@ -108,6 +166,34 @@ def test_caption_skips_already_captioned(tmp_env):
     mock_provider.caption.assert_not_called()
 
 
+def test_caption_picks_up_stale_schema_version(tmp_env):
+    photos_dir = tmp_env["photos_dir"]
+    _make_png(photos_dir / "photo.png")
+
+    import app.indexer.scan as scan_mod
+    scan_mod.run_scan()
+
+    db_path = tmp_env["data_dir"] / "photos.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "UPDATE photos SET caption='old', caption_indexed_at='2020-01-01T00:00:00', "
+        "caption_schema_version=1"
+    )
+    conn.commit()
+    conn.close()
+
+    mock_provider = MagicMock()
+    mock_provider.caption = AsyncMock(return_value=_FULL_RESPONSE)
+
+    import app.indexer.caption as caption_mod
+
+    with patch.object(caption_mod, "get_caption_provider", return_value=mock_provider):
+        count = caption_mod.run_caption(limit=10)
+
+    assert count == 1
+    mock_provider.caption.assert_called_once()
+
+
 def test_caption_limit_respected(tmp_env):
     photos_dir = tmp_env["photos_dir"]
     for i in range(5):
@@ -117,7 +203,7 @@ def test_caption_limit_respected(tmp_env):
     scan_mod.run_scan()
 
     mock_provider = MagicMock()
-    mock_provider.caption = AsyncMock(return_value={"caption": "A photo", "tags": []})
+    mock_provider.caption = AsyncMock(return_value=_FULL_RESPONSE)
 
     import app.indexer.caption as caption_mod
 

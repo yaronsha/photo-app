@@ -28,3 +28,7 @@ class SearchResult:
     location_name: str | None = None
     tags: list[str] | None = None
     people: list[dict] | None = None
+    activities: list[str] | None = None
+    content_type: str | None = None
+    subject_type: str | None = None
+    setting_type: str | None = None

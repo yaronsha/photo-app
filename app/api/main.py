@@ -47,6 +47,7 @@ def search_endpoint(
     date_to: str | None = Query(None),
     person_id: list[str] = Query(default=[]),
     people_mode: str = Query("any"),
+    include_docs: bool = Query(False),
 ):
     lo = _validate_iso_date(date_from, "date_from")
     hi = _validate_iso_date(date_to, "date_to")
@@ -59,6 +60,7 @@ def search_endpoint(
         date_to=hi,
         person_ids=person_id or None,
         people_mode=people_mode,
+        include_docs=include_docs,
     )
     return {
         "results": [
@@ -71,6 +73,10 @@ def search_endpoint(
                 "location_name": r.location_name,
                 "tags": r.tags or [],
                 "people": r.people or [],
+                "activities": r.activities or [],
+                "content_type": r.content_type,
+                "subject_type": r.subject_type,
+                "setting_type": r.setting_type,
             }
             for r in results
         ]
@@ -120,6 +126,14 @@ def photo_info(photo_id: str):
         "description": data.get("description"),
         "tags": data.get("tags") or [],
         "people": [{"id": r["id"], "name": r["name"]} for r in pp_rows],
+        "activities": data.get("activities") or [],
+        "content_type": data.get("content_type"),
+        "subject_type": data.get("subject_type"),
+        "primary_focus": data.get("primary_focus"),
+        "indoor_outdoor": data.get("indoor_outdoor"),
+        "setting_type": data.get("setting_type"),
+        "sharpness": data.get("sharpness"),
+        "face_clarity_score": data.get("face_clarity_score"),
     }
 
 

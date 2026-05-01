@@ -17,9 +17,10 @@ def run_embed(reindex: bool = False, limit: int | None = None) -> int:
     assert_embed_model(settings.embed_model)
 
     query = (
-        "SELECT id, caption, tags, taken_at FROM photos WHERE caption IS NOT NULL"
+        "SELECT id, caption, activities, content_type, taken_at FROM photos "
+        "WHERE caption IS NOT NULL"
         if reindex
-        else "SELECT id, caption, tags, taken_at FROM photos "
+        else "SELECT id, caption, activities, content_type, taken_at FROM photos "
              "WHERE caption IS NOT NULL AND vector_indexed_at IS NULL"
     )
     if limit:
@@ -40,16 +41,20 @@ def run_embed(reindex: bool = False, limit: int | None = None) -> int:
     t0 = time.time()
 
     for i, row in enumerate(rows, 1):
-        tags: list[str] = []
-        if row["tags"]:
+        if row["content_type"] in ("document", "other"):
+            skipped += 1
+            continue
+
+        activities: list[str] = []
+        if row["activities"]:
             try:
-                tags = json.loads(row["tags"])
+                activities = json.loads(row["activities"])
             except (json.JSONDecodeError, TypeError):
-                tags = []
+                activities = []
 
         text = row["caption"]
-        if tags:
-            text = text + " " + " ".join(tags)
+        if activities:
+            text = text + " " + " ".join(activities)
 
         try:
             vec = provider.embed(text)

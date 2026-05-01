@@ -16,6 +16,19 @@ def get_conn() -> sqlite3.Connection:
     return conn
 
 
+PHOTOS_ATTRIBUTE_COLUMNS: list[tuple[str, str]] = [
+    ("activities", "TEXT"),
+    ("content_type", "TEXT"),
+    ("subject_type", "TEXT"),
+    ("primary_focus", "TEXT"),
+    ("indoor_outdoor", "TEXT"),
+    ("setting_type", "TEXT"),
+    ("sharpness", "TEXT"),
+    ("face_clarity_score", "INTEGER"),
+    ("caption_schema_version", "INTEGER"),
+]
+
+
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS photos (
@@ -28,6 +41,15 @@ def init_schema(conn: sqlite3.Connection) -> None:
             lng                 REAL,
             caption             TEXT,
             tags                TEXT,
+            activities          TEXT,
+            content_type        TEXT,
+            subject_type        TEXT,
+            primary_focus       TEXT,
+            indoor_outdoor      TEXT,
+            setting_type        TEXT,
+            sharpness           TEXT,
+            face_clarity_score  INTEGER,
+            caption_schema_version INTEGER,
             happiness_score     REAL,
             aesthetic_score     REAL,
             description         TEXT,
@@ -56,14 +78,26 @@ def init_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_photos_taken_at ON photos(taken_at);
         CREATE INDEX IF NOT EXISTS idx_photo_people_person ON photo_people(person_id);
     """)
+
+    existing = {r[1] for r in conn.execute("PRAGMA table_info(photos)").fetchall()}
+    for col, sqltype in PHOTOS_ATTRIBUTE_COLUMNS:
+        if col not in existing:
+            conn.execute(f"ALTER TABLE photos ADD COLUMN {col} {sqltype}")
+
+    conn.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_photos_content_type ON photos(content_type);
+        CREATE INDEX IF NOT EXISTS idx_photos_subject_type ON photos(subject_type);
+        CREATE INDEX IF NOT EXISTS idx_photos_setting_type ON photos(setting_type);
+    """)
     conn.commit()
 
 
 def row_to_dict(row: sqlite3.Row) -> dict:
     d = dict(row)
-    if d.get("tags") and isinstance(d["tags"], str):
-        try:
-            d["tags"] = json.loads(d["tags"])
-        except (json.JSONDecodeError, TypeError):
-            d["tags"] = []
+    for field in ("tags", "activities"):
+        if field in d and d[field] and isinstance(d[field], str):
+            try:
+                d[field] = json.loads(d[field])
+            except (json.JSONDecodeError, TypeError):
+                d[field] = []
     return d

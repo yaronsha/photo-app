@@ -8,6 +8,7 @@ from .providers import get_caption_provider
 
 DEFAULT_LIMIT = 50
 CONCURRENCY = 6
+CAPTION_SCHEMA_VERSION = 2
 
 
 def run_caption(limit: int = DEFAULT_LIMIT, reindex: bool = False) -> int:
@@ -27,9 +28,12 @@ async def _run_caption_async(limit: int, reindex: bool) -> int:
     else:
         rows = conn.execute(
             "SELECT id, storage_path, lat, lng, location_name FROM photos "
-            "WHERE scan_indexed_at IS NOT NULL AND caption_indexed_at IS NULL "
+            "WHERE scan_indexed_at IS NOT NULL "
+            "AND (caption_indexed_at IS NULL "
+            "     OR caption_schema_version IS NULL "
+            "     OR caption_schema_version < ?) "
             "LIMIT ?",
-            (limit,),
+            (CAPTION_SCHEMA_VERSION, limit),
         ).fetchall()
 
     print(f"caption: processing {len(rows)} photos (concurrency={CONCURRENCY})")
@@ -59,8 +63,30 @@ async def _run_caption_async(limit: int, reindex: bool) -> int:
 
         now = datetime.now(timezone.utc).isoformat()
         conn.execute(
-            "UPDATE photos SET caption = ?, tags = ?, caption_indexed_at = ? WHERE id = ?",
-            (result["caption"], json.dumps(result["tags"]), now, row["id"]),
+            """
+            UPDATE photos SET
+              caption=?, tags=?, activities=?,
+              content_type=?, subject_type=?, primary_focus=?,
+              indoor_outdoor=?, setting_type=?, sharpness=?,
+              face_clarity_score=?,
+              caption_indexed_at=?, caption_schema_version=?
+            WHERE id=?
+            """,
+            (
+                result["caption"],
+                json.dumps(result["tags"]),
+                json.dumps(result["activities"]),
+                result["content_type"],
+                result["subject_type"],
+                result["primary_focus"],
+                result["indoor_outdoor"],
+                result["setting_type"],
+                result["sharpness"],
+                result["face_clarity_score"],
+                now,
+                CAPTION_SCHEMA_VERSION,
+                row["id"],
+            ),
         )
         conn.commit()
         captioned += 1

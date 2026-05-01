@@ -29,6 +29,7 @@ def search(
     date_to: str | None = None,
     person_ids: list[str] | None = None,
     people_mode: Literal["any", "all"] = "any",
+    include_docs: bool = False,
 ) -> list[SearchResult]:
     lo, hi = _date_bounds(date_from, date_to)
     has_date = lo is not None or hi is not None
@@ -41,9 +42,11 @@ def search(
     conn = get_conn()
 
     if not has_query:
-        results = _browse(conn, lo, hi, person_ids, limit, people_mode)
+        results = _browse(conn, lo, hi, person_ids, limit, people_mode, include_docs)
     else:
-        results = _vector_search(conn, query, lo, hi, person_ids, limit, people_mode)
+        results = _vector_search(
+            conn, query, lo, hi, person_ids, limit, people_mode, include_docs
+        )
 
     conn.close()
     return results
@@ -75,9 +78,13 @@ def _browse(
     person_ids: list[str] | None,
     limit: int,
     people_mode: Literal["any", "all"] = "any",
+    include_docs: bool = False,
 ) -> list[SearchResult]:
     where: list[str] = ["taken_at IS NOT NULL"]
     params: list = []
+
+    if not include_docs:
+        where.append("(content_type = 'photo' OR content_type IS NULL)")
 
     if lo is not None:
         where.append("taken_at >= ?")
@@ -123,6 +130,10 @@ def _browse(
                 location_name=row.get("location_name"),
                 tags=row.get("tags") or [],
                 people=people_by_photo.get(pid, []),
+                activities=row.get("activities") or [],
+                content_type=row.get("content_type"),
+                subject_type=row.get("subject_type"),
+                setting_type=row.get("setting_type"),
             )
         )
     return results
@@ -136,12 +147,15 @@ def _vector_search(
     person_ids: list[str] | None,
     limit: int,
     people_mode: Literal["any", "all"] = "any",
+    include_docs: bool = False,
 ) -> list[SearchResult]:
     provider = get_embed_provider()
     qvec = provider.embed(query)
 
     collection = get_collection()
-    has_filter = lo is not None or hi is not None or bool(person_ids)
+    has_filter = (
+        lo is not None or hi is not None or bool(person_ids) or not include_docs
+    )
     # "all" mode is far more selective than "any"; overfetch may still under-return
     # for very strict multi-person intersections in large collections.
     overfetch = min(limit * 4, 200) if has_filter else limit
@@ -159,6 +173,9 @@ def _vector_search(
     id_placeholders = ",".join("?" * len(ids))
     where: list[str] = [f"id IN ({id_placeholders})"]
     params: list = list(ids)
+
+    if not include_docs:
+        where.append("(content_type = 'photo' OR content_type IS NULL)")
 
     if lo is not None:
         where.append("taken_at >= ?")
@@ -202,6 +219,10 @@ def _vector_search(
                 location_name=row.get("location_name"),
                 tags=row.get("tags") or [],
                 people=people_by_photo.get(photo_id, []),
+                activities=row.get("activities") or [],
+                content_type=row.get("content_type"),
+                subject_type=row.get("subject_type"),
+                setting_type=row.get("setting_type"),
             )
         )
         if len(results) >= limit:

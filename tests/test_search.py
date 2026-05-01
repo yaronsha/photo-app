@@ -41,6 +41,11 @@ def _create_schema(conn):
             original_filename TEXT NOT NULL, taken_at TIMESTAMP,
             location_name TEXT, lat REAL, lng REAL,
             caption TEXT, tags TEXT,
+            activities TEXT,
+            content_type TEXT, subject_type TEXT, primary_focus TEXT,
+            indoor_outdoor TEXT, setting_type TEXT,
+            sharpness TEXT, face_clarity_score INTEGER,
+            caption_schema_version INTEGER,
             happiness_score REAL, aesthetic_score REAL,
             scan_indexed_at TIMESTAMP, caption_indexed_at TIMESTAMP,
             vector_indexed_at TIMESTAMP, face_indexed_at TIMESTAMP
@@ -353,6 +358,93 @@ def test_browse_people_all_mode_single_person(tmp_env):
         )
 
     assert {r.id for r in results} == {"photo_ab", "photo_a"}
+
+
+def _seed_mixed_content(data_dir: Path, photos_dir: Path) -> list[str]:
+    """3 rows: photo, document, pre-migration (NULL content_type)."""
+    db_path = data_dir / "photos.db"
+    conn = sqlite3.connect(str(db_path))
+    _create_schema(conn)
+    rows = [
+        ("id_photo", "p.jpg", "photo", "a beach photo"),
+        ("id_doc", "d.jpg", "document", "a receipt scan"),
+        ("id_legacy", "l.jpg", None, "old un-migrated row"),
+    ]
+    for pid, fname, ctype, cap in rows:
+        conn.execute(
+            "INSERT INTO photos (id, storage_path, original_filename, caption, "
+            "content_type, taken_at, scan_indexed_at, caption_indexed_at, vector_indexed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                pid, str(photos_dir / fname), fname, cap, ctype,
+                "2021-06-01T12:00:00+00:00",
+                "2021-06-01T12:00:00+00:00",
+                "2021-06-01T12:00:00+00:00",
+                "2021-06-01T12:00:00+00:00",
+            ),
+        )
+    conn.commit()
+    conn.close()
+    return [r[0] for r in rows]
+
+
+def test_browse_excludes_documents_by_default(tmp_env):
+    _seed_mixed_content(tmp_env["data_dir"], tmp_env["photos_dir"])
+
+    import app.search.query as query_mod
+
+    with (
+        patch.object(query_mod, "get_embed_provider", return_value=MagicMock()),
+        patch.object(query_mod, "get_collection", return_value=MagicMock()),
+    ):
+        results = query_mod.search(
+            None, date_from="2021-06-01", date_to="2021-06-01"
+        )
+
+    assert {r.id for r in results} == {"id_photo", "id_legacy"}
+
+
+def test_browse_include_docs_returns_everything(tmp_env):
+    _seed_mixed_content(tmp_env["data_dir"], tmp_env["photos_dir"])
+
+    import app.search.query as query_mod
+
+    with (
+        patch.object(query_mod, "get_embed_provider", return_value=MagicMock()),
+        patch.object(query_mod, "get_collection", return_value=MagicMock()),
+    ):
+        results = query_mod.search(
+            None,
+            date_from="2021-06-01",
+            date_to="2021-06-01",
+            include_docs=True,
+        )
+
+    assert {r.id for r in results} == {"id_photo", "id_doc", "id_legacy"}
+
+
+def test_vector_search_excludes_documents_by_default(tmp_env):
+    ids = _seed_mixed_content(tmp_env["data_dir"], tmp_env["photos_dir"])
+
+    mock_embed_provider = MagicMock()
+    mock_embed_provider.embed.return_value = [0.1] * 1536
+
+    mock_collection = MagicMock()
+    mock_collection.count.return_value = len(ids)
+    mock_collection.query.return_value = {
+        "ids": [ids],
+        "distances": [[0.1, 0.2, 0.3]],
+    }
+
+    import app.search.query as query_mod
+
+    with (
+        patch.object(query_mod, "get_embed_provider", return_value=mock_embed_provider),
+        patch.object(query_mod, "get_collection", return_value=mock_collection),
+    ):
+        results = query_mod.search("anything")
+
+    assert {r.id for r in results} == {"id_photo", "id_legacy"}
 
 
 def test_browse_people_default_mode_is_any(tmp_env):
