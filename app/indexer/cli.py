@@ -6,7 +6,7 @@ def main():
     parser = argparse.ArgumentParser(description="Family Photos indexer")
     parser.add_argument(
         "--step",
-        choices=["scan", "google_metadata", "location", "caption", "embed", "all"],
+        choices=["scan", "google_metadata", "location", "pre_caption", "caption", "embed", "all"],
         required=True,
         help="Pipeline step to run",
     )
@@ -33,6 +33,14 @@ def main():
 
     elif args.step == "location":
         from .location import run_location
+        run_location(reindex=args.reindex)
+
+    elif args.step == "pre_caption":
+        from .scan import run_scan
+        from .google_metadata import run_google_metadata
+        from .location import run_location
+        run_scan(reindex=args.reindex)
+        run_google_metadata(reindex=args.reindex)
         run_location(reindex=args.reindex)
 
     elif args.step == "caption":
