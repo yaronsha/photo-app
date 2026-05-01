@@ -1,12 +1,13 @@
 import argparse
 import sys
+from pathlib import Path
 
 
 def main():
     parser = argparse.ArgumentParser(description="Family Photos indexer")
     parser.add_argument(
         "--step",
-        choices=["scan", "google_metadata", "location", "pre_caption", "caption", "embed", "all"],
+        choices=["merge", "scan", "google_metadata", "location", "pre_caption", "caption", "embed", "all"],
         required=True,
         help="Pipeline step to run",
     )
@@ -21,9 +22,30 @@ def main():
         action="store_true",
         help="Re-process already-indexed photos",
     )
+    parser.add_argument(
+        "--folders",
+        nargs="+",
+        type=Path,
+        default=None,
+        help="Takeout folders to merge (required for --step merge)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview merge without copying files",
+    )
     args = parser.parse_args()
 
-    if args.step == "scan":
+    if args.step == "merge":
+        if not args.folders:
+            parser.error("--step merge requires --folders")
+        from .merge import run_merge
+        from .scan import run_scan
+        run_merge(args.folders, dry_run=args.dry_run)
+        if not args.dry_run:
+            run_scan(reindex=args.reindex)
+
+    elif args.step == "scan":
         from .scan import run_scan
         run_scan(reindex=args.reindex)
 

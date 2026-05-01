@@ -1,33 +1,16 @@
-#!/usr/bin/env python3
-"""
-Merge Google Takeout folders into photos/ directory.
-
-- Deduplicates by SHA256 content hash (same algorithm as scan.py)
-- Organizes into photos/YYYY/ using photoTakenTime from sidecar JSON
-- Saves sidecar JSON to data/sidecars/{photo_id}.json for later indexing
-
-Usage:
-    python scripts/merge_takeouts.py <folder> [<folder> ...] [--dry-run]
-
-    # Initial import
-    python scripts/merge_takeouts.py ~/Downloads/Takeout ~/Downloads/"Takeout 2" ...
-
-    # Add new photos later — only pass the new folder
-    python scripts/merge_takeouts.py ~/Downloads/"Takeout 11"
-"""
-import argparse
 import hashlib
 import json
 import shutil
+import sqlite3 as _sqlite
 from datetime import datetime, timezone
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).parent.parent
+from ..config import get_settings
 
-ACCEPTED_EXTS = {".jpg", ".jpeg", ".png", ".heic", ".mp4", ".mov", ".avi", ".gif", ".webp"}
+ACCEPTED_EXTS = {".jpg", ".jpeg", ".png", ".heic"}
 
 
-def sha256_id(path: Path) -> str:
+def _sha256_id(path: Path) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(65536), b""):
@@ -35,31 +18,22 @@ def sha256_id(path: Path) -> str:
     return h.hexdigest()[:16]
 
 
-def find_sidecar(photo_path: Path) -> Path | None:
-    """
-    Find JSON sidecar for a photo. Google Takeout uses two naming patterns:
-      1. photo.jpg.supplemental-metadata.json
-      2. {uuid_truncated}.json where json stem = photo stem minus last char
-         e.g. photo: abc123def.jpg → sidecar: abc123de.json
-    """
+def _find_sidecar(photo_path: Path) -> Path | None:
     supp = photo_path.parent / (photo_path.name + ".supplemental-metadata.json")
     if supp.exists():
         return supp
-
     plain = photo_path.parent / (photo_path.name + ".json")
     if plain.exists():
         return plain
-
     stem = photo_path.stem
     if len(stem) > 1:
         trunc_json = photo_path.parent / (stem[:-1] + ".json")
         if trunc_json.exists():
             return trunc_json
-
     return None
 
 
-def year_from_sidecar(data: dict) -> int | None:
+def _year_from_sidecar(data: dict) -> int | None:
     ts = data.get("photoTakenTime", {}).get("timestamp")
     if ts:
         try:
@@ -69,7 +43,7 @@ def year_from_sidecar(data: dict) -> int | None:
     return None
 
 
-def year_from_folder(folder_name: str) -> int | None:
+def _year_from_folder(folder_name: str) -> int | None:
     if folder_name.startswith("Photos from "):
         try:
             return int(folder_name.split()[-1])
@@ -78,29 +52,30 @@ def year_from_folder(folder_name: str) -> int | None:
     return None
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Merge Google Takeout folders into photos/")
-    parser.add_argument("folders", nargs="+", type=Path, help="Takeout/Google Photos folders to merge")
-    parser.add_argument("--dry-run", action="store_true", help="Preview without copying")
-    args = parser.parse_args()
+def run_merge(folders: list[Path], dry_run: bool = False) -> dict:
+    settings = get_settings()
+    photos_dir = settings.photos_dir
+    sidecars_dir = settings.data_dir / "sidecars"
 
-    photos_dir = PROJECT_ROOT / "photos"
-    sidecars_dir = PROJECT_ROOT / "data" / "sidecars"
-
-    if not args.dry_run:
+    if not dry_run:
         photos_dir.mkdir(parents=True, exist_ok=True)
         sidecars_dir.mkdir(parents=True, exist_ok=True)
 
     seen: set[str] = set()
+    if settings.db_path.exists():
+        con = _sqlite.connect(settings.db_path)
+        seen.update(row[0] for row in con.execute("SELECT id FROM photos"))
+        con.close()
+
     merged = skipped_dupe = no_sidecar = 0
 
-    for folder in args.folders:
+    for folder in folders:
         if not folder.exists():
             print(f"skip (not found): {folder}")
             continue
 
         print(f"\n→ {folder}")
-        folder_count = 0
+        folder_count = folder_dupes = 0
 
         for photo_path in sorted(folder.rglob("*")):
             if not photo_path.is_file():
@@ -108,15 +83,16 @@ def main():
             if photo_path.suffix.lower() not in ACCEPTED_EXTS:
                 continue
 
-            photo_id = sha256_id(photo_path)
+            photo_id = _sha256_id(photo_path)
 
             if photo_id in seen:
                 skipped_dupe += 1
+                folder_dupes += 1
                 continue
             seen.add(photo_id)
 
             sidecar_data: dict | None = None
-            sidecar_path = find_sidecar(photo_path)
+            sidecar_path = _find_sidecar(photo_path)
             if sidecar_path:
                 try:
                     sidecar_data = json.loads(sidecar_path.read_text(encoding="utf-8"))
@@ -126,8 +102,8 @@ def main():
                 no_sidecar += 1
 
             year = (
-                (year_from_sidecar(sidecar_data) if sidecar_data else None)
-                or year_from_folder(photo_path.parent.name)
+                (_year_from_sidecar(sidecar_data) if sidecar_data else None)
+                or _year_from_folder(photo_path.parent.name)
                 or "unknown"
             )
 
@@ -135,12 +111,11 @@ def main():
             dest_name = photo_path.name
             dest_path = dest_dir / dest_name
 
-            # collision: same name, different content
-            if dest_path.exists() and not args.dry_run:
+            if dest_path.exists() and not dry_run:
                 dest_name = f"{photo_id}_{photo_path.name}"
                 dest_path = dest_dir / dest_name
 
-            if args.dry_run:
+            if dry_run:
                 print(f"  [dry] {photo_path.name} → photos/{year}/{dest_name}")
             else:
                 dest_dir.mkdir(parents=True, exist_ok=True)
@@ -153,13 +128,11 @@ def main():
             merged += 1
             folder_count += 1
 
-        print(f"  {folder_count} files")
+        print(f"  {folder_count} merged, {folder_dupes} skipped (already indexed)")
 
-    print(f"\n{'[DRY RUN] ' if args.dry_run else ''}Done:")
+    print(f"\n{'[DRY RUN] ' if dry_run else ''}merge done:")
     print(f"  {merged} merged")
     print(f"  {skipped_dupe} duplicates skipped")
     print(f"  {no_sidecar} files had no sidecar JSON")
 
-
-if __name__ == "__main__":
-    main()
+    return {"merged": merged, "skipped_dupe": skipped_dupe, "no_sidecar": no_sidecar}

@@ -49,7 +49,7 @@ Local-first family photo search + games app. Python + FastAPI + SQLite + ChromaD
 Each step is independent and re-runnable:
 
 ```
-0. merge      → scripts/merge_takeouts.py → photos/ + data/sidecars/
+0. merge      → app/indexer/merge.py → photos/ + data/sidecars/ (auto-runs scan after)
 1. scan       → EXIF → SQLite
 2. google_metadata → data/sidecars/{id}.json → SQLite (taken_at, lat/lng, description, photo_people)
 3. location   → reverse_geocoder (offline) → SQLite (location_name)
@@ -64,14 +64,19 @@ Track progress with `*_indexed_at` timestamps. Skip already-indexed unless `--re
 ### Google Takeout import
 
 ```bash
-# Merge one or more Takeout folders (dedupes by SHA256)
-python scripts/merge_takeouts.py ~/Downloads/Takeout/Google\ Photos ~/Downloads/"Takeout 2"/Google\ Photos
+# Merge one or more Takeout folders (dedupes by SHA256, auto-runs scan)
+uv run photos-index --step merge --folders ~/Downloads/Takeout/Google\ Photos ~/Downloads/"Takeout 2"/Google\ Photos
+
+# Preview without copying
+uv run photos-index --step merge --folders ~/Downloads/Takeout --dry-run
 
 # Then run pipeline normally
-uv run photos-index --step scan
 uv run photos-index --step google_metadata   # enriches from sidecars, populates photo_people
 uv run photos-index --step caption --limit 50
 ```
+
+- `merge` only imports: `.jpg .jpeg .png .heic` — video/gif not yet supported in scan pipeline
+- Dedupes against DB (populated by scan). Always run merge via CLI so scan runs atomically after.
 
 Sidecars live at `data/sidecars/{photo_id}.json`. `google_metadata` step reads them to populate:
 - `taken_at` — photoTakenTime (authoritative for old/scanned photos without EXIF)
