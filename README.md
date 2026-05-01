@@ -1,5 +1,7 @@
 # Family Photos AI App
 
+[![tests](https://github.com/yaronsha/photo-app/actions/workflows/tests.yml/badge.svg)](https://github.com/yaronsha/photo-app/actions/workflows/tests.yml)
+
 Local-first web app to search, browse, and play with a family photo collection using AI.
 
 Runs entirely on a laptop. No cloud at runtime. API calls only at index time (captions + embeddings).

@@ -49,6 +49,21 @@ uv run pytest tests/test_search.py  # one file
 uv run pytest -k "person"           # by name
 ```
 
+`tests/conftest.py` provides shared fixtures (`tmp_env`, `make_png`, `write_config`) — use them in new test files.
+
+### Continuous Integration
+
+GitHub Actions runs the full test suite on every push to `main` and every pull request. Workflow: [`.github/workflows/tests.yml`](../.github/workflows/tests.yml).
+
+- Runner: `ubuntu-latest` · Python `3.11` (project minimum) · `uv` for env
+- Steps: `uv sync` then `uv run pytest -v`
+- Watch runs: https://github.com/yaronsha/photo-app/actions/workflows/tests.yml
+
+Local pre-push check:
+```bash
+uv run pytest                       # mirror what CI runs
+```
+
 ## Project Layout
 
 ```
@@ -80,10 +95,17 @@ family-photos-app/
 │       ├── app.js            — search, filters, lightbox, datepicker
 │       └── style.css
 ├── tests/
+│   ├── conftest.py           — shared fixtures (tmp_env, make_png)
 │   ├── test_scan.py
 │   ├── test_caption.py       — mocks provider
 │   ├── test_embed.py
-│   └── test_search.py
+│   ├── test_search.py
+│   ├── test_merge.py
+│   ├── test_google_metadata.py
+│   ├── test_location.py
+│   └── test_api.py
+├── .github/workflows/
+│   └── tests.yml             — CI: pytest on push + PR
 ├── docs/                     — this directory
 ├── config.json               — per-family config
 ├── pyproject.toml            — deps + scripts entry
