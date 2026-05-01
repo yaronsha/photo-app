@@ -76,10 +76,10 @@ def run_merge(folders: list[Path], dry_run: bool = False) -> dict:
 
         print(f"\n→ {folder}")
         folder_count = folder_dupes = 0
+        all_files = [p for p in folder.rglob("*") if p.is_file()]
+        print(f"  {len(all_files)} files found")
 
-        for photo_path in sorted(folder.rglob("*")):
-            if not photo_path.is_file():
-                continue
+        for photo_path in sorted(all_files):
             if photo_path.suffix.lower() not in ACCEPTED_EXTS:
                 continue
 
