@@ -55,7 +55,7 @@ uv run pytest -k "person"           # by name
 
 GitHub Actions runs the full test suite on every push to `main` and every pull request. Workflow: [`.github/workflows/tests.yml`](../.github/workflows/tests.yml).
 
-- Runner: `ubuntu-latest` · Python `3.11` (project minimum) · `uv` for env
+- Runner: `ubuntu-latest` · Python `3.14` (matches dev env) · `uv` for env
 - Steps: `uv sync` then `uv run pytest -v`
 - Watch runs: https://github.com/yaronsha/photo-app/actions/workflows/tests.yml
 
