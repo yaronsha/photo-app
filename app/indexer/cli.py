@@ -41,9 +41,9 @@ def main():
             parser.error("--step merge requires --folders")
         from .merge import run_merge
         from .scan import run_scan
-        run_merge(args.folders, dry_run=args.dry_run)
+        result = run_merge(args.folders, dry_run=args.dry_run)
         if not args.dry_run:
-            run_scan(reindex=args.reindex)
+            run_scan(reindex=args.reindex, prehashed=result["items"])
 
     elif args.step == "scan":
         from .scan import run_scan

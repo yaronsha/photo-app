@@ -68,6 +68,7 @@ def run_merge(folders: list[Path], dry_run: bool = False) -> dict:
         con.close()
 
     merged = skipped_dupe = no_sidecar = 0
+    items: list[tuple[str, Path]] = []
 
     for folder in folders:
         if not folder.exists():
@@ -124,6 +125,7 @@ def run_merge(folders: list[Path], dry_run: bool = False) -> dict:
                     (sidecars_dir / f"{photo_id}.json").write_text(
                         json.dumps(sidecar_data, ensure_ascii=False, indent=2)
                     )
+                items.append((photo_id, dest_path))
 
             merged += 1
             folder_count += 1
@@ -135,4 +137,9 @@ def run_merge(folders: list[Path], dry_run: bool = False) -> dict:
     print(f"  {skipped_dupe} duplicates skipped")
     print(f"  {no_sidecar} files had no sidecar JSON")
 
-    return {"merged": merged, "skipped_dupe": skipped_dupe, "no_sidecar": no_sidecar}
+    return {
+        "merged": merged,
+        "skipped_dupe": skipped_dupe,
+        "no_sidecar": no_sidecar,
+        "items": items,
+    }

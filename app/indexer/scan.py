@@ -66,7 +66,10 @@ def _gps_decimal(coord_tag, ref_tag) -> float | None:
         return None
 
 
-def run_scan(reindex: bool = False) -> int:
+def run_scan(
+    reindex: bool = False,
+    prehashed: list[tuple[str, Path]] | None = None,
+) -> int:
     settings = get_settings()
     conn = get_conn()
     init_schema(conn)
@@ -79,8 +82,12 @@ def run_scan(reindex: bool = False) -> int:
     scanned = 0
     skipped = 0
 
-    for path in _walk_photos(photos_dir):
-        photo_id = _sha256_id(path)
+    if prehashed is not None:
+        items = iter(prehashed)
+    else:
+        items = ((_sha256_id(p), p) for p in _walk_photos(photos_dir))
+
+    for photo_id, path in items:
         existing = conn.execute(
             "SELECT scan_indexed_at FROM photos WHERE id = ?", (photo_id,)
         ).fetchone()
