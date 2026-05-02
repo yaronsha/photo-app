@@ -8,7 +8,7 @@ from .providers import get_caption_provider
 
 DEFAULT_LIMIT = 50
 CONCURRENCY = 6
-CAPTION_SCHEMA_VERSION = 2
+CAPTION_SCHEMA_VERSION = 3
 
 
 def run_caption(limit: int = DEFAULT_LIMIT, reindex: bool = False) -> int:
