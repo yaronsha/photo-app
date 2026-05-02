@@ -1,142 +1,88 @@
 # Family Photos AI App
 
-Local-first web app for families/friend groups to search, browse, and play with their photo collection using AI.
+[![tests](https://github.com/yaronsha/photo-app/actions/workflows/tests.yml/badge.svg)](https://github.com/yaronsha/photo-app/actions/workflows/tests.yml)
+
+Local-first web app to search, browse, and play with a family photo collection using AI.
+
+Runs entirely on a laptop. No cloud at runtime. API calls only at index time (captions + embeddings).
 
 ## What It Does
 
-- **Natural language search** — "grandma at the beach", "that rainy trip to Rome", "everyone looks happy"
-- **Person search** — find photos by named family member
-- **Games** — Kahoot-style: "who is this?", "odd one out", "guess the year", "match the baby photo"
-- **Flexible display** — gallery, slideshow, generation base — decoupled from search
+- **Natural language search** — "grandma at the beach", "rainy trip to Rome", "kids eating cake"
+- **Person search** — filter by named family member (any/all)
+- **Date filtering** — year, month, day range
+- **Games** _(planned)_ — "who is this?", "guess the year", baby match, odd one out
+- **Lightbox viewer** — caption, location, people, tags, original Google Photos note
 
-## Non-Goals
+## Quick Start
 
-- Not a commercial product
-- Not designed for strangers — built for ~20 known people per family
-- Not cloud-dependent — runs fully on a laptop
+```bash
+# 1. Install deps
+uv sync
 
-## Forkable Design
+# 2. Configure
+cp .env.example .env                       # add OPENAI_API_KEY
+$EDITOR config.json                        # set family_name, people, aliases
 
-Each family gets their own `data/` folder. App code is shared. No entanglement between families.
+# 3. Import photos (Google Takeout)
+uv run photos-index --step merge --folders ~/Downloads/Takeout/Google\ Photos
+uv run photos-index --step google_metadata
+uv run photos-index --step location
+uv run photos-index --step caption --limit 50    # test small batch first
+uv run photos-index --step embed
 
+# 4. Run web UI
+uv run uvicorn app.api.main:app --reload --port 8000
+# open http://localhost:8000
 ```
-/family-photos-app/
-  app/               ← shared code
-  data/
-    photos.db        ← SQLite (metadata, faces, scores)
-    chroma/          ← ChromaDB (vectors)
-  config.json        ← family name, people list, data_dir
-  photos/            ← symlink or path to actual photo collection
-```
 
----
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for full setup and command reference.
 
-## Architecture
+## Documentation
 
-### Stack
+| File | Purpose |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Stack, layers, data flow, SQLite + ChromaDB schema |
+| [docs/INDEXING.md](docs/INDEXING.md) | Pipeline steps, idempotency, schema versioning |
+| [docs/API.md](docs/API.md) | FastAPI endpoint reference |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Env setup, common tasks, testing |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Phase 2 (faces) + Phase 3 (games, scores) |
+| [docs/REFACTOR_SUGGESTIONS.md](docs/REFACTOR_SUGGESTIONS.md) | Proposed code restructures |
+| [FACE_RECOGNITION.md](FACE_RECOGNITION.md) | Anchor-based face matching design |
+| [CLAUDE.md](CLAUDE.md) | Agent collaboration rules |
+
+## Project Constraints
+
+- **Local only** — no cloud at runtime. Privacy-first (face data stays on device).
+- **Forkable per family** — one `data/` folder per family, shared app code.
+- **Idempotent indexing** — every step safe to re-run.
+- **Scale target** — ~100K photos / 200GB on a single laptop.
+
+## Stack
 
 | Layer | Choice |
 |---|---|
-| Backend | Python + FastAPI |
-| Metadata DB | SQLite |
-| Vector DB | ChromaDB (local file) |
-| Vision AI | Claude / OpenAI API (index time) |
-| Face recognition | `face_recognition` lib (local) |
-| Frontend | HTML + JS (simple start) |
+| Backend | Python 3.11+ · FastAPI · uvicorn |
+| Metadata | SQLite (WAL mode) |
+| Vectors | ChromaDB (local persistent) |
+| Vision LLM | OpenAI `gpt-4.1-nano` (Phase 1 default) |
+| Embeddings | OpenAI `text-embedding-3-small` |
+| Faces _(Phase 2)_ | `face_recognition` (dlib, local) |
+| Frontend | Vanilla HTML / JS / CSS |
+| Env | `uv` + `pyproject.toml` |
 
-### Data Flow
-
-```
-merge_takeouts.py       → photos/ (deduped) + data/sidecars/ (sidecar JSONs)
-  → EXIF extract        → SQLite (date, GPS, location_name)
-  → Google metadata     → SQLite (taken_at, description, photo_people from Google tags)
-  → AI caption          → SQLite (caption text)
-  → Embedding           → ChromaDB (semantic vector)
-  → Face detection      → SQLite (person_id per face)
-  → Scores              → SQLite (happiness_score, etc.)
-```
-
-Index once. Re-index is safe — idempotent, versioned per step.
-
-### Search Flow
+## Layout
 
 ```
-User query: "grandma at beach"
-  → parse intent (LLM or keyword extract)
-  → vector search on query embedding → top 50 candidates
-  → filter by person_id, date, location
-  → return ranked photo[]
-```
-
-Search and display are fully decoupled. Search returns `photo[]` + metadata. Display mode consumes that array however it wants.
-
-### Games Are Query Plugins
-
-No new indexing needed for games. Each game type = different query strategy on existing data.
-
-| Game | Query |
-|---|---|
-| Who is this? | random face-tagged photo, wrong answers from other people |
-| Odd one out | 3 nearest neighbors + 1 distant outlier via vector search |
-| Guess the year | random photo, answer from EXIF |
-| Match baby photo | same person_id, different decade |
-
----
-
-## Scale
-
-- ~100K photos / 200GB
-- Vectors: ~400MB (ChromaDB local folder)
-- SQLite: ~50MB
-- Runs entirely on laptop, no internet required after indexing
-
----
-
-## Build Phases
-
-### Phase 1 — Full pipeline, no faces
-1. Scan folder → SQLite (EXIF, paths)
-2. AI captions on small batch (50 photos) → tune prompt → run on all
-3. Embed captions → ChromaDB
-4. Basic search UI
-
-### Phase 2 — Faces + Games
-1. Install `face_recognition` (see [FACE_RECOGNITION.md](FACE_RECOGNITION.md))
-2. Collect anchors per person, run matching
-3. First game: "who is this?"
-
----
-
-## Key Design Decisions
-
-- **Scores at index time** — `happiness_score`, aesthetic score computed once on upload, stored as SQLite columns. Query time = free SQL sort.
-- **Supervised face matching** — not clustering. 20 known people → anchor photos per person → match all detected faces against anchors.
-- **Hybrid search** — vector similarity for semantic, SQLite for filter/sort/exact. They join on `photo_id`.
-- **Local face recognition** — privacy. Family photos stay on-device.
-- **Games need no re-indexing** — all game mechanics use data already in the index.
-
----
-
-## SQLite Schema (simplified)
-
-```sql
-photos (
-  id, storage_path, original_filename,
-  taken_at, location_name, lat, lng,
-  caption TEXT,
-  tags JSONB,
-  happiness_score REAL,
-  aesthetic_score REAL,
-  description TEXT,                    -- user note from Google Photos
-  google_people TEXT,                  -- raw Google face tags JSON
-  scan_indexed_at TIMESTAMP,
-  caption_indexed_at TIMESTAMP,
-  vector_indexed_at TIMESTAMP,
-  face_indexed_at TIMESTAMP,
-  google_metadata_indexed_at TIMESTAMP
-)
-
-people (id, name, family_id)
-
-photo_people (photo_id, person_id, face_bbox, confidence)
+family-photos-app/
+├── app/                  shared code (indexer, search, api, web)
+├── config.json           per-family config (people, aliases, model names)
+├── data/                 SQLite, ChromaDB, sidecars, thumbs (gitignored)
+├── photos/               photo collection (gitignored)
+├── docs/                 architecture + development docs
+├── tests/                pytest suite
+├── pyproject.toml        deps + scripts entry
+├── README.md             this file
+├── CLAUDE.md             agent rules
+└── FACE_RECOGNITION.md   face design notes
 ```
