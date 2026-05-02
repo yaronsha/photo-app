@@ -16,13 +16,12 @@ def run_embed(reindex: bool = False, limit: int | None = None) -> int:
     print(f"embed: model={settings.embed_model} reindex={reindex} limit={limit}")
     assert_embed_model(settings.embed_model)
 
-    query = (
+    base = (
         "SELECT id, caption, activities, content_type, taken_at FROM photos "
-        "WHERE caption IS NOT NULL"
-        if reindex
-        else "SELECT id, caption, activities, content_type, taken_at FROM photos "
-             "WHERE caption IS NOT NULL AND vector_indexed_at IS NULL"
+        "WHERE caption IS NOT NULL "
+        "AND (content_type IS NULL OR content_type NOT IN ('document', 'other'))"
     )
+    query = base if reindex else base + " AND vector_indexed_at IS NULL"
     if limit:
         query += f" LIMIT {limit}"
 
@@ -41,10 +40,6 @@ def run_embed(reindex: bool = False, limit: int | None = None) -> int:
     t0 = time.time()
 
     for i, row in enumerate(rows, 1):
-        if row["content_type"] in ("document", "other"):
-            skipped += 1
-            continue
-
         activities: list[str] = []
         if row["activities"]:
             try:
