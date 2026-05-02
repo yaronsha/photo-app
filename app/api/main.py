@@ -85,11 +85,11 @@ def search_endpoint(
 
 @app.get("/thumb/{photo_id}")
 def thumb(photo_id: str):
+    storage_path = _resolve_photo_path(photo_id)
     settings = get_settings()
     thumb_path = settings.thumbs_path / f"{photo_id}.jpg"
 
     if not thumb_path.exists():
-        storage_path = _resolve_photo_path(photo_id)
         _generate_thumb(storage_path, thumb_path)
 
     return FileResponse(str(thumb_path), media_type="image/jpeg")
@@ -160,7 +160,7 @@ def _resolve_photo_path(photo_id: str) -> Path:
     real_storage = Path(os.path.realpath(storage))
     real_photos = Path(os.path.realpath(settings.photos_dir))
 
-    if not str(real_storage).startswith(str(real_photos)):
+    if real_storage != real_photos and real_photos not in real_storage.parents:
         raise HTTPException(status_code=403, detail="Access denied")
 
     if not storage.exists():

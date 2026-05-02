@@ -38,6 +38,7 @@ async def _run_caption_async(limit: int, reindex: bool) -> int:
 
     print(f"caption: processing {len(rows)} photos (concurrency={CONCURRENCY})")
     semaphore = asyncio.Semaphore(CONCURRENCY)
+    db_lock = asyncio.Lock()
     captioned = 0
     skipped = 0
 
@@ -62,33 +63,34 @@ async def _run_caption_async(limit: int, reindex: bool) -> int:
                 return
 
         now = datetime.now(timezone.utc).isoformat()
-        conn.execute(
-            """
-            UPDATE photos SET
-              caption=?, tags=?, activities=?,
-              content_type=?, subject_type=?, primary_focus=?,
-              indoor_outdoor=?, setting_type=?, sharpness=?,
-              face_clarity_score=?,
-              caption_indexed_at=?, caption_schema_version=?
-            WHERE id=?
-            """,
-            (
-                result["caption"],
-                json.dumps(result["tags"]),
-                json.dumps(result["activities"]),
-                result["content_type"],
-                result["subject_type"],
-                result["primary_focus"],
-                result["indoor_outdoor"],
-                result["setting_type"],
-                result["sharpness"],
-                result["face_clarity_score"],
-                now,
-                CAPTION_SCHEMA_VERSION,
-                row["id"],
-            ),
-        )
-        conn.commit()
+        async with db_lock:
+            conn.execute(
+                """
+                UPDATE photos SET
+                  caption=?, tags=?, activities=?,
+                  content_type=?, subject_type=?, primary_focus=?,
+                  indoor_outdoor=?, setting_type=?, sharpness=?,
+                  face_clarity_score=?,
+                  caption_indexed_at=?, caption_schema_version=?
+                WHERE id=?
+                """,
+                (
+                    result["caption"],
+                    json.dumps(result["tags"]),
+                    json.dumps(result["activities"]),
+                    result["content_type"],
+                    result["subject_type"],
+                    result["primary_focus"],
+                    result["indoor_outdoor"],
+                    result["setting_type"],
+                    result["sharpness"],
+                    result["face_clarity_score"],
+                    now,
+                    CAPTION_SCHEMA_VERSION,
+                    row["id"],
+                ),
+            )
+            conn.commit()
         captioned += 1
 
     await asyncio.gather(*[process(row) for row in rows])
