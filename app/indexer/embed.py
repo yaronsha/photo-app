@@ -17,11 +17,15 @@ def run_embed(reindex: bool = False, limit: int | None = None) -> int:
     assert_embed_model(settings.embed_model)
 
     base = (
-        "SELECT id, caption, activities, content_type, taken_at FROM photos "
+        "SELECT id, caption, activities, content_type, taken_at, caption_schema_version FROM photos "
         "WHERE caption IS NOT NULL "
         "AND (content_type IS NULL OR content_type NOT IN ('document', 'other'))"
     )
-    query = base if reindex else base + " AND vector_indexed_at IS NULL"
+    stale = (
+        " AND (embed_schema_version IS NULL"
+        " OR embed_schema_version < caption_schema_version)"
+    )
+    query = base if reindex else base + stale
     if limit:
         query += f" LIMIT {limit}"
 
@@ -73,8 +77,8 @@ def run_embed(reindex: bool = False, limit: int | None = None) -> int:
 
         now = datetime.now(timezone.utc).isoformat()
         conn.execute(
-            "UPDATE photos SET vector_indexed_at = ? WHERE id = ?",
-            (now, row["id"]),
+            "UPDATE photos SET vector_indexed_at = ?, embed_schema_version = ? WHERE id = ?",
+            (now, row["caption_schema_version"], row["id"]),
         )
         conn.commit()  # release lock immediately — allows caption to interleave
         embedded += 1
