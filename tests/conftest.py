@@ -63,3 +63,49 @@ def write_config(cfg_path: Path, **overrides) -> None:
     cfg_path.write_text(json.dumps(raw))
     import app.config as config_mod
     config_mod._settings = None
+
+
+from unittest.mock import AsyncMock, MagicMock
+
+
+FULL_CAPTION_RESPONSE = {
+    "caption": "A sunny outdoor scene",
+    "tags": ["sunny", "outdoor", "nature"],
+    "activities": ["walking", "playing"],
+    "content_type": "photo",
+    "subject_type": "candid_people",
+    "primary_focus": "people",
+    "indoor_outdoor": "outdoor",
+    "setting_type": "park",
+    "sharpness": "sharp",
+    "face_clarity_score": 3,
+}
+
+FAKE_EMBED_VEC = [0.1] * 1536
+
+
+@pytest.fixture()
+def pipeline_env(tmp_env, monkeypatch):
+    """tmp_env + pre-wired mock caption/embed providers + mock chroma collection."""
+    import app.chroma as chroma_mod
+
+    # Reset module-level chroma singletons — prevents cross-test contamination
+    monkeypatch.setattr(chroma_mod, "_client", None)
+    monkeypatch.setattr(chroma_mod, "_collection", None)
+
+    mock_caption_provider = MagicMock()
+    mock_caption_provider.caption = AsyncMock(return_value=FULL_CAPTION_RESPONSE)
+
+    mock_embed_provider = MagicMock()
+    mock_embed_provider.embed = MagicMock(return_value=FAKE_EMBED_VEC)
+
+    mock_collection = MagicMock()
+    mock_collection.upsert = MagicMock()
+    mock_collection.metadata = {"embed_model": "text-embedding-3-small"}
+
+    return {
+        **tmp_env,
+        "mock_caption_provider": mock_caption_provider,
+        "mock_embed_provider": mock_embed_provider,
+        "mock_collection": mock_collection,
+    }
