@@ -2,6 +2,7 @@ import json
 import struct
 import zlib
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -63,9 +64,6 @@ def write_config(cfg_path: Path, **overrides) -> None:
     cfg_path.write_text(json.dumps(raw))
     import app.config as config_mod
     config_mod._settings = None
-
-
-from unittest.mock import AsyncMock, MagicMock
 
 
 FULL_CAPTION_RESPONSE = {
