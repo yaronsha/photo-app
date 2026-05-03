@@ -38,17 +38,20 @@ def _seed(db_path: Path, rows: list[tuple]):
     conn = sqlite3.connect(str(db_path))
     from app.db import init_schema
     init_schema(conn)
-    for pid, caption, activities, content_type in rows:
+    for pid, caption, activities, content_type, *rest in rows:
+        csv = rest[0] if rest else 1
         conn.execute(
             "INSERT INTO photos (id, storage_path, original_filename, caption, "
-            "activities, content_type, taken_at, scan_indexed_at, caption_indexed_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "activities, content_type, taken_at, scan_indexed_at, caption_indexed_at, "
+            "caption_schema_version) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 pid, f"/tmp/{pid}.jpg", f"{pid}.jpg",
                 caption, json.dumps(activities), content_type,
                 "2022-01-01T00:00:00+00:00",
                 "2022-01-01T00:00:00+00:00",
                 "2022-01-01T00:00:00+00:00",
+                csv,
             ),
         )
     conn.commit()
@@ -157,3 +160,57 @@ def test_embed_text_omits_tags(tmp_env):
     assert "two children running" in text
     for tag in ("zebrazebra", "yellowbananatag", "purpleorchid"):
         assert tag not in text, f"tag {tag!r} should not be in embed text"
+
+
+def test_embed_reruns_when_caption_version_advances(tmp_env):
+    db_path = tmp_env["data_dir"] / "photos.db"
+    _seed(db_path, [("p1", "a beach", ["swimming"], "photo", 2)])
+
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("UPDATE photos SET embed_schema_version=1 WHERE id='p1'")
+    conn.commit()
+    conn.close()
+
+    mock_provider = MagicMock()
+    mock_provider.embed.return_value = [0.1] * 1536
+    mock_collection = MagicMock()
+
+    import app.indexer.embed as embed_mod
+    import app.chroma as chroma_mod
+
+    with (
+        patch.object(embed_mod, "get_embed_provider", return_value=mock_provider),
+        patch.object(embed_mod, "get_collection", return_value=mock_collection),
+        patch.object(embed_mod, "assert_embed_model"),
+        patch.object(chroma_mod, "get_collection", return_value=mock_collection),
+    ):
+        count = embed_mod.run_embed()
+
+    assert count == 1  # re-embedded because embed_schema_version(1) < caption_schema_version(2)
+
+
+def test_embed_skips_when_already_current(tmp_env):
+    db_path = tmp_env["data_dir"] / "photos.db"
+    _seed(db_path, [("p1", "a beach", ["swimming"], "photo", 2)])
+
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("UPDATE photos SET embed_schema_version=2 WHERE id='p1'")
+    conn.commit()
+    conn.close()
+
+    mock_provider = MagicMock()
+    mock_provider.embed.return_value = [0.1] * 1536
+    mock_collection = MagicMock()
+
+    import app.indexer.embed as embed_mod
+    import app.chroma as chroma_mod
+
+    with (
+        patch.object(embed_mod, "get_embed_provider", return_value=mock_provider),
+        patch.object(embed_mod, "get_collection", return_value=mock_collection),
+        patch.object(embed_mod, "assert_embed_model"),
+        patch.object(chroma_mod, "get_collection", return_value=mock_collection),
+    ):
+        count = embed_mod.run_embed()
+
+    assert count == 0  # already current
