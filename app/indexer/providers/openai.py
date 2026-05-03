@@ -171,7 +171,7 @@ class OpenAIProvider:
         resp = await _get_async_client().chat.completions.create(
             model=model,
             temperature=0,
-            max_tokens=400,
+            max_completion_tokens=400,
             response_format={
                 "type": "json_schema",
                 "json_schema": {
