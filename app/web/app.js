@@ -6,6 +6,7 @@ let lbIndex = -1;
 let people  = [];
 const activePeople = new Set();
 let peopleMode = 'any';
+let currentOffset = 0;
 
 // ─────────────────────────────────────────────
 // DOM
@@ -311,17 +312,12 @@ function _buildDate(monthVal, dayVal, side) {
   return `${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 }
 
-async function doSearch() {
+function _buildSearchParams(offset = 0) {
   const q = queryInput.value.trim();
   const dFrom = _buildDate(pickerFrom.getValue(), dayFrom.value, 'from');
   const dTo   = _buildDate(pickerTo.getValue(),   dayTo.value,   'to');
-  const hasPerson = activePeople.size > 0;
 
-  if (!q && !dFrom && !dTo && !hasPerson) return;
-
-  showSkeletons();
-
-  const params = new URLSearchParams({ limit: 50 });
+  const params = new URLSearchParams({ limit: 50, offset });
   if (q)     params.set('q', q);
   if (dFrom) params.set('date_from', dFrom);
   if (dTo)   params.set('date_to',   dTo);
@@ -329,14 +325,24 @@ async function doSearch() {
   if (activePeople.size > 0 && peopleMode === 'all') {
     params.set('people_mode', 'all');
   }
+  return params;
+}
+
+async function doSearch() {
+  const params = _buildSearchParams(0);
+  if (!params.has('q') && !params.has('date_from') && !params.has('date_to') && !params.has('person_id')) return;
+
+  currentOffset = 0;
+  showSkeletons();
 
   try {
     const resp = await fetch(`/search?${params}`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
     results = data.results || [];
-    renderResults();
+    renderResults(data.has_more);
 
+    const q = params.get('q');
     const url = new URL(location);
     if (q) url.searchParams.set('q', q);
     else   url.searchParams.delete('q');
@@ -347,11 +353,90 @@ async function doSearch() {
   }
 }
 
+async function loadMore() {
+  currentOffset += 50;
+  const params = _buildSearchParams(currentOffset);
+  const btn = document.getElementById('load-more-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+
+  try {
+    const resp = await fetch(`/search?${params}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    const newResults = data.results || [];
+    results = results.concat(newResults);
+    appendResults(newResults, data.has_more);
+    setStatus(`${results.length} photos`);
+  } catch (err) {
+    setStatus(`Error: ${err.message}`);
+    if (btn) { btn.disabled = false; btn.textContent = 'Load more'; }
+  }
+}
+
 // ─────────────────────────────────────────────
 // RENDER
 // ─────────────────────────────────────────────
-function renderResults() {
+function _makeCard(r, index) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.setAttribute('role', 'listitem');
+  card.tabIndex = 0;
+  card.setAttribute('aria-label', r.caption || 'Family photo');
+
+  const wrap = document.createElement('div');
+  wrap.className = 'card-img-wrap';
+
+  const img = document.createElement('img');
+  img.className  = 'card-img';
+  img.src        = r.thumb_url;
+  img.alt        = r.caption || '';
+  img.loading    = 'lazy';
+  img.decoding   = 'async';
+  wrap.appendChild(img);
+
+  const info = document.createElement('div');
+  info.className = 'card-info';
+
+  if (r.caption) {
+    const cap = document.createElement('div');
+    cap.className   = 'card-caption';
+    cap.textContent = r.caption;
+    info.appendChild(cap);
+  }
+
+  if (r.taken_at) {
+    const d = document.createElement('div');
+    d.className   = 'card-date';
+    d.textContent = fmtDate(r.taken_at);
+    info.appendChild(d);
+  }
+
+  card.appendChild(wrap);
+  card.appendChild(info);
+
+  const open = () => openLightbox(index);
+  card.addEventListener('click', open);
+  card.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') open(); });
+
+  return card;
+}
+
+function _renderLoadMore(has_more) {
+  const existing = document.getElementById('load-more-btn');
+  if (existing) existing.remove();
+  if (!has_more) return;
+
+  const btn = document.createElement('button');
+  btn.id        = 'load-more-btn';
+  btn.className = 'load-more-btn';
+  btn.textContent = 'Load more';
+  btn.addEventListener('click', loadMore);
+  grid.after(btn);
+}
+
+function renderResults(has_more = false) {
   grid.innerHTML = '';
+  document.getElementById('load-more-btn')?.remove();
 
   if (!results.length) {
     setStatus('No photos found.');
@@ -362,50 +447,14 @@ function renderResults() {
   const n = results.length;
   setStatus(`${n} ${n === 1 ? 'photo' : 'photos'}`);
 
-  results.forEach((r, i) => {
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.setAttribute('role', 'listitem');
-    card.tabIndex = 0;
-    card.setAttribute('aria-label', r.caption || 'Family photo');
+  results.forEach((r, i) => grid.appendChild(_makeCard(r, i)));
+  _renderLoadMore(has_more);
+}
 
-    const wrap = document.createElement('div');
-    wrap.className = 'card-img-wrap';
-
-    const img = document.createElement('img');
-    img.className  = 'card-img';
-    img.src        = r.thumb_url;
-    img.alt        = r.caption || '';
-    img.loading    = 'lazy';
-    img.decoding   = 'async';
-    wrap.appendChild(img);
-
-    const info = document.createElement('div');
-    info.className = 'card-info';
-
-    if (r.caption) {
-      const cap = document.createElement('div');
-      cap.className   = 'card-caption';
-      cap.textContent = r.caption;
-      info.appendChild(cap);
-    }
-
-    if (r.taken_at) {
-      const d = document.createElement('div');
-      d.className   = 'card-date';
-      d.textContent = fmtDate(r.taken_at);
-      info.appendChild(d);
-    }
-
-    card.appendChild(wrap);
-    card.appendChild(info);
-
-    const open = () => openLightbox(i);
-    card.addEventListener('click', open);
-    card.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') open(); });
-
-    grid.appendChild(card);
-  });
+function appendResults(newResults, has_more) {
+  const startIndex = results.length - newResults.length;
+  newResults.forEach((r, i) => grid.appendChild(_makeCard(r, startIndex + i)));
+  _renderLoadMore(has_more);
 }
 
 function showSkeletons(count = 9) {

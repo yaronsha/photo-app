@@ -25,31 +25,32 @@ def _date_bounds(date_from: str | None, date_to: str | None) -> tuple[str | None
 def search(
     query: str | None = None,
     limit: int = 50,
+    offset: int = 0,
     date_from: str | None = None,
     date_to: str | None = None,
     person_ids: list[str] | None = None,
     people_mode: Literal["any", "all"] = "any",
     include_docs: bool = False,
-) -> list[SearchResult]:
+) -> tuple[list[SearchResult], bool]:
     lo, hi = _date_bounds(date_from, date_to)
     has_date = lo is not None or hi is not None
     has_query = bool(query and query.strip())
     has_person = bool(person_ids)
 
     if not has_query and not has_date and not has_person:
-        return []
+        return [], False
 
     conn = get_conn()
 
     if not has_query:
-        results = _browse(conn, lo, hi, person_ids, limit, people_mode, include_docs)
+        results, has_more = _browse(conn, lo, hi, person_ids, limit, offset, people_mode, include_docs)
     else:
-        results = _vector_search(
-            conn, query, lo, hi, person_ids, limit, people_mode, include_docs
+        results, has_more = _vector_search(
+            conn, query, lo, hi, person_ids, limit, offset, people_mode, include_docs
         )
 
     conn.close()
-    return results
+    return results, has_more
 
 
 def _attach_people(conn, photo_ids: list[str]) -> dict[str, list[dict]]:
@@ -77,9 +78,10 @@ def _browse(
     hi: str | None,
     person_ids: list[str] | None,
     limit: int,
+    offset: int = 0,
     people_mode: Literal["any", "all"] = "any",
     include_docs: bool = False,
-) -> list[SearchResult]:
+) -> tuple[list[SearchResult], bool]:
     where: list[str] = ["taken_at IS NOT NULL"]
     params: list = []
 
@@ -106,13 +108,17 @@ def _browse(
             )
         params.extend(person_ids)
 
+    # fetch limit+1 to detect has_more without a separate COUNT query
     sql = (
         f"SELECT * FROM photos WHERE {' AND '.join(where)} "
-        f"ORDER BY taken_at DESC LIMIT ?"
+        f"ORDER BY taken_at DESC LIMIT ? OFFSET ?"
     )
-    params.append(limit)
+    params.extend([limit + 1, offset])
 
     rows = conn.execute(sql, params).fetchall()
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+
     by_id = {r["id"]: row_to_dict(r) for r in rows}
     ids = list(by_id.keys())
     people_by_photo = _attach_people(conn, ids)
@@ -136,7 +142,7 @@ def _browse(
                 setting_type=row.get("setting_type"),
             )
         )
-    return results
+    return results, has_more
 
 
 def _vector_search(
@@ -146,9 +152,10 @@ def _vector_search(
     hi: str | None,
     person_ids: list[str] | None,
     limit: int,
+    offset: int = 0,
     people_mode: Literal["any", "all"] = "any",
     include_docs: bool = False,
-) -> list[SearchResult]:
+) -> tuple[list[SearchResult], bool]:
     provider = get_embed_provider()
     qvec = provider.embed(query)
 
@@ -158,7 +165,7 @@ def _vector_search(
     )
     # "all" mode is far more selective than "any"; overfetch may still under-return
     # for very strict multi-person intersections in large collections.
-    overfetch = min(limit * 4, 200) if has_filter else limit
+    overfetch = min((limit + offset) * 4, 200) if has_filter else min(limit + offset, 200)
     n = min(overfetch, collection.count() or 1)
 
     chroma_results = collection.query(query_embeddings=[qvec], n_results=n)
@@ -168,7 +175,7 @@ def _vector_search(
         chroma_results["distances"][0] if chroma_results["distances"] else []
     )
     if not ids:
-        return []
+        return [], False
 
     id_placeholders = ",".join("?" * len(ids))
     where: list[str] = [f"id IN ({id_placeholders})"]
@@ -204,12 +211,13 @@ def _vector_search(
     returned_ids = list(by_id.keys())
     people_by_photo = _attach_people(conn, returned_ids)
 
-    results = []
+    # collect all filtered results in chroma rank order
+    all_results = []
     for photo_id, dist in zip(ids, distances):
         if photo_id not in by_id:
             continue
         row = by_id[photo_id]
-        results.append(
+        all_results.append(
             SearchResult(
                 id=photo_id,
                 caption=row.get("caption"),
@@ -225,6 +233,6 @@ def _vector_search(
                 setting_type=row.get("setting_type"),
             )
         )
-        if len(results) >= limit:
-            break
-    return results
+
+    has_more = len(all_results) > offset + limit
+    return all_results[offset : offset + limit], has_more

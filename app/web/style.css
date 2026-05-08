@@ -975,6 +975,25 @@ body::after {
   .family-name { font-size: 2.3rem; }
 }
 
+/* ═══════════════════════════════════════════════
+   LOAD MORE
+═══════════════════════════════════════════════ */
+.load-more-btn {
+  display: block;
+  margin: 1.5rem auto 2rem;
+  padding: .65rem 2rem;
+  background: transparent;
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-pill);
+  color: var(--espresso-mid);
+  font-family: var(--font-body);
+  font-size: .9rem;
+  cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+.load-more-btn:hover  { border-color: var(--amber); color: var(--amber); }
+.load-more-btn:disabled { opacity: .5; cursor: default; }
+
 /* Scrollbar styling */
 ::-webkit-scrollbar          { width: 5px; }
 ::-webkit-scrollbar-track    { background: var(--cream); }

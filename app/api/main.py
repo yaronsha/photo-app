@@ -43,6 +43,7 @@ def people_endpoint():
 def search_endpoint(
     q: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
     person_id: list[str] = Query(default=[]),
@@ -53,9 +54,10 @@ def search_endpoint(
     hi = _validate_iso_date(date_to, "date_to")
     if people_mode not in ("any", "all"):
         raise HTTPException(status_code=400, detail="people_mode must be 'any' or 'all'")
-    results = do_search(
+    results, has_more = do_search(
         q,
         limit=limit,
+        offset=offset,
         date_from=lo,
         date_to=hi,
         person_ids=person_id or None,
@@ -79,7 +81,8 @@ def search_endpoint(
                 "setting_type": r.setting_type,
             }
             for r in results
-        ]
+        ],
+        "has_more": has_more,
     }
 
 

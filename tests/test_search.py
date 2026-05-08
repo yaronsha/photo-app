@@ -113,7 +113,7 @@ def test_search_returns_results(tmp_env):
         patch.object(query_mod, "get_embed_provider", return_value=mock_embed_provider),
         patch.object(query_mod, "get_collection", return_value=mock_collection),
     ):
-        results = query_mod.search("beach", limit=10)
+        results, _ = query_mod.search("beach", limit=10)
 
     assert len(results) == 1
     assert results[0].id == photo_id
@@ -137,7 +137,7 @@ def test_search_empty_collection(tmp_env):
         patch.object(query_mod, "get_embed_provider", return_value=mock_embed_provider),
         patch.object(query_mod, "get_collection", return_value=mock_collection),
     ):
-        results = query_mod.search("anything")
+        results, _ = query_mod.search("anything")
 
     assert results == []
 
@@ -176,7 +176,7 @@ def test_browse_by_date_range_no_query(tmp_env):
         patch.object(query_mod, "get_embed_provider", return_value=mock_embed_provider),
         patch.object(query_mod, "get_collection", return_value=mock_collection),
     ):
-        results = query_mod.search(
+        results, _ = query_mod.search(
             None, date_from="2015-03-01", date_to="2015-03-31"
         )
 
@@ -192,8 +192,8 @@ def test_browse_empty_returns_nothing(tmp_env):
 
     import app.search.query as query_mod
 
-    assert query_mod.search(None) == []
-    assert query_mod.search("") == []
+    assert query_mod.search(None) == ([], False)
+    assert query_mod.search("") == ([], False)
 
 
 def test_vector_search_filters_by_date(tmp_env):
@@ -215,7 +215,7 @@ def test_vector_search_filters_by_date(tmp_env):
         patch.object(query_mod, "get_embed_provider", return_value=mock_embed_provider),
         patch.object(query_mod, "get_collection", return_value=mock_collection),
     ):
-        results = query_mod.search(
+        results, _ = query_mod.search(
             "anything", date_from="2015-03-01", date_to="2015-03-31"
         )
 
@@ -232,7 +232,7 @@ def test_date_to_inclusive(tmp_env):
         patch.object(query_mod, "get_collection", return_value=MagicMock()),
     ):
         # date_to inclusive — 2015-03-28 should include the 2015-03-28T12:00 photo
-        results = query_mod.search(
+        results, _ = query_mod.search(
             None, date_from="2015-03-28", date_to="2015-03-28"
         )
 
@@ -280,7 +280,7 @@ def test_browse_people_any_mode(tmp_env):
         patch.object(query_mod, "get_embed_provider", return_value=MagicMock()),
         patch.object(query_mod, "get_collection", return_value=MagicMock()),
     ):
-        results = query_mod.search(
+        results, _ = query_mod.search(
             None,
             date_from="2020-01-01",
             date_to="2020-01-03",
@@ -300,7 +300,7 @@ def test_browse_people_all_mode(tmp_env):
         patch.object(query_mod, "get_embed_provider", return_value=MagicMock()),
         patch.object(query_mod, "get_collection", return_value=MagicMock()),
     ):
-        results = query_mod.search(
+        results, _ = query_mod.search(
             None,
             date_from="2020-01-01",
             date_to="2020-01-03",
@@ -330,7 +330,7 @@ def test_vector_search_people_all_mode(tmp_env):
         patch.object(query_mod, "get_embed_provider", return_value=mock_embed_provider),
         patch.object(query_mod, "get_collection", return_value=mock_collection),
     ):
-        results = query_mod.search(
+        results, _ = query_mod.search(
             "family",
             person_ids=["alice", "bob"],
             people_mode="all",
@@ -349,7 +349,7 @@ def test_browse_people_all_mode_single_person(tmp_env):
         patch.object(query_mod, "get_embed_provider", return_value=MagicMock()),
         patch.object(query_mod, "get_collection", return_value=MagicMock()),
     ):
-        results = query_mod.search(
+        results, _ = query_mod.search(
             None,
             date_from="2020-01-01",
             date_to="2020-01-03",
@@ -397,7 +397,7 @@ def test_browse_excludes_documents_by_default(tmp_env):
         patch.object(query_mod, "get_embed_provider", return_value=MagicMock()),
         patch.object(query_mod, "get_collection", return_value=MagicMock()),
     ):
-        results = query_mod.search(
+        results, _ = query_mod.search(
             None, date_from="2021-06-01", date_to="2021-06-01"
         )
 
@@ -413,7 +413,7 @@ def test_browse_include_docs_returns_everything(tmp_env):
         patch.object(query_mod, "get_embed_provider", return_value=MagicMock()),
         patch.object(query_mod, "get_collection", return_value=MagicMock()),
     ):
-        results = query_mod.search(
+        results, _ = query_mod.search(
             None,
             date_from="2021-06-01",
             date_to="2021-06-01",
@@ -442,7 +442,7 @@ def test_vector_search_excludes_documents_by_default(tmp_env):
         patch.object(query_mod, "get_embed_provider", return_value=mock_embed_provider),
         patch.object(query_mod, "get_collection", return_value=mock_collection),
     ):
-        results = query_mod.search("anything")
+        results, _ = query_mod.search("anything")
 
     assert {r.id for r in results} == {"id_photo", "id_legacy"}
 
@@ -457,7 +457,7 @@ def test_browse_people_default_mode_is_any(tmp_env):
         patch.object(query_mod, "get_embed_provider", return_value=MagicMock()),
         patch.object(query_mod, "get_collection", return_value=MagicMock()),
     ):
-        results = query_mod.search(
+        results, _ = query_mod.search(
             None,
             date_from="2020-01-01",
             date_to="2020-01-03",
@@ -466,3 +466,55 @@ def test_browse_people_default_mode_is_any(tmp_env):
         )
 
     assert {r.id for r in results} == {"photo_ab", "photo_a", "photo_b"}
+
+
+def test_browse_offset(tmp_env):
+    ids = _seed_multi(tmp_env["data_dir"], tmp_env["photos_dir"])
+    # ids ordered DESC by taken_at: apr, mar-late, mar, feb
+
+    import app.search.query as query_mod
+
+    with (
+        patch.object(query_mod, "get_embed_provider", return_value=MagicMock()),
+        patch.object(query_mod, "get_collection", return_value=MagicMock()),
+    ):
+        results, _ = query_mod.search(
+            None, date_from="2015-02-01", date_to="2015-04-30", limit=2, offset=2
+        )
+
+    # first 2 (offset=0) would be apr and mar-late; offset=2 gives mar and feb
+    assert [r.id for r in results] == ["id_mar2015", "id_feb2015"]
+
+
+def test_browse_has_more_true(tmp_env):
+    _seed_multi(tmp_env["data_dir"], tmp_env["photos_dir"])
+
+    import app.search.query as query_mod
+
+    with (
+        patch.object(query_mod, "get_embed_provider", return_value=MagicMock()),
+        patch.object(query_mod, "get_collection", return_value=MagicMock()),
+    ):
+        results, has_more = query_mod.search(
+            None, date_from="2015-02-01", date_to="2015-04-30", limit=2
+        )
+
+    assert len(results) == 2
+    assert has_more is True
+
+
+def test_browse_has_more_false(tmp_env):
+    _seed_multi(tmp_env["data_dir"], tmp_env["photos_dir"])
+
+    import app.search.query as query_mod
+
+    with (
+        patch.object(query_mod, "get_embed_provider", return_value=MagicMock()),
+        patch.object(query_mod, "get_collection", return_value=MagicMock()),
+    ):
+        results, has_more = query_mod.search(
+            None, date_from="2015-02-01", date_to="2015-04-30", limit=10
+        )
+
+    assert len(results) == 4
+    assert has_more is False

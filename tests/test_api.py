@@ -72,7 +72,7 @@ def test_search_invalid_people_mode_returns_400(client):
 def test_search_empty_query_no_filters_returns_empty(client):
     resp = client.get("/search")
     assert resp.status_code == 200
-    assert resp.json() == {"results": []}
+    assert resp.json() == {"results": [], "has_more": False}
 
 
 def test_search_browse_mode_returns_results(tmp_env, client):
