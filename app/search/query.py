@@ -140,6 +140,10 @@ def _browse(
                 content_type=row.get("content_type"),
                 subject_type=row.get("subject_type"),
                 setting_type=row.get("setting_type"),
+                sharpness=row.get("sharpness"),
+                face_clarity_score=row.get("face_clarity_score"),
+                primary_focus=row.get("primary_focus"),
+                indoor_outdoor=row.get("indoor_outdoor"),
             )
         )
     return results, has_more
@@ -231,6 +235,10 @@ def _vector_search(
                 content_type=row.get("content_type"),
                 subject_type=row.get("subject_type"),
                 setting_type=row.get("setting_type"),
+                sharpness=row.get("sharpness"),
+                face_clarity_score=row.get("face_clarity_score"),
+                primary_focus=row.get("primary_focus"),
+                indoor_outdoor=row.get("indoor_outdoor"),
             )
         )
 
