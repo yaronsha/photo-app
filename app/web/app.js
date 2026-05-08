@@ -7,7 +7,6 @@ let people  = [];
 const activePeople = new Set();
 let peopleMode = 'any';
 let currentOffset = 0;
-let currentSearchParams = null;
 
 // ─────────────────────────────────────────────
 // DOM
@@ -330,24 +329,20 @@ function _buildSearchParams(offset = 0) {
 }
 
 async function doSearch() {
-  const q = queryInput.value.trim();
-  const dFrom = _buildDate(pickerFrom.getValue(), dayFrom.value, 'from');
-  const dTo   = _buildDate(pickerTo.getValue(),   dayTo.value,   'to');
-  const hasPerson = activePeople.size > 0;
-
-  if (!q && !dFrom && !dTo && !hasPerson) return;
+  const params = _buildSearchParams(0);
+  if (!params.has('q') && !params.has('date_from') && !params.has('date_to') && !params.has('person_id')) return;
 
   currentOffset = 0;
-  currentSearchParams = _buildSearchParams(0);
   showSkeletons();
 
   try {
-    const resp = await fetch(`/search?${currentSearchParams}`);
+    const resp = await fetch(`/search?${params}`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
     results = data.results || [];
     renderResults(data.has_more);
 
+    const q = params.get('q');
     const url = new URL(location);
     if (q) url.searchParams.set('q', q);
     else   url.searchParams.delete('q');
@@ -441,7 +436,7 @@ function _renderLoadMore(has_more) {
 
 function renderResults(has_more = false) {
   grid.innerHTML = '';
-  _renderLoadMore(false);
+  document.getElementById('load-more-btn')?.remove();
 
   if (!results.length) {
     setStatus('No photos found.');
