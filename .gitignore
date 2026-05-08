@@ -10,3 +10,5 @@ __pycache__/
 .pytest_cache/
 dist/
 *.egg-info/
+photos.bak.*.db
+.claude/settings.local.json
