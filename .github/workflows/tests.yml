@@ -19,5 +19,8 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Run pytest
-        run: uv run pytest -v
+      - name: Run unit tests
+        run: uv run pytest -v --ignore=tests/test_integration_pipeline.py
+
+      - name: Run integration tests
+        run: uv run pytest tests/test_integration_pipeline.py -v
