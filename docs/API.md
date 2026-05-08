@@ -32,6 +32,7 @@ Hybrid semantic + filter search.
 |---|---|---|---|
 | `q` | string | _none_ | Natural language query. If empty/missing, falls back to browse mode (filter-only) |
 | `limit` | int | `50` | Range 1-200 |
+| `offset` | int | `0` | Skip this many results. Use with `has_more` for "Load more" pagination |
 | `date_from` | ISO date `YYYY-MM-DD` | _none_ | Inclusive |
 | `date_to` | ISO date `YYYY-MM-DD` | _none_ | Inclusive (server adds 1 day for half-open compare) |
 | `person_id` | string (repeatable) | _none_ | Multiple `?person_id=yaron&person_id=noa` |
@@ -61,11 +62,14 @@ Hybrid semantic + filter search.
       "subject_type": "group",
       "setting_type": "beach"
     }
-  ]
+  ],
+  "has_more": false
 }
 ```
 
 `score` is `1.0 - cosine_distance` for vector search; `0.0` for browse mode.
+
+`has_more` is `true` when more results exist beyond the current `offset + limit` window. Use with `offset` to implement "Load more" pagination.
 
 ### `GET /thumb/{photo_id}`
 Returns 400×400 JPEG thumbnail. Generated lazily on first request, cached at `data/thumbs/{photo_id}.jpg`.
