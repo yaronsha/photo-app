@@ -72,6 +72,27 @@ def _attach_people(conn, photo_ids: list[str]) -> dict[str, list[dict]]:
     return people_by_photo
 
 
+def _row_to_result(row: dict, people: list[dict], score: float) -> SearchResult:
+    return SearchResult(
+        id=row["id"],
+        caption=row.get("caption"),
+        taken_at=row.get("taken_at"),
+        storage_path=row["storage_path"],
+        score=score,
+        location_name=row.get("location_name"),
+        tags=row.get("tags") or [],
+        people=people,
+        activities=row.get("activities") or [],
+        content_type=row.get("content_type"),
+        subject_type=row.get("subject_type"),
+        setting_type=row.get("setting_type"),
+        sharpness=row.get("sharpness"),
+        face_clarity_score=row.get("face_clarity_score"),
+        primary_focus=row.get("primary_focus"),
+        indoor_outdoor=row.get("indoor_outdoor"),
+    )
+
+
 def _browse(
     conn,
     lo: str | None,
@@ -123,29 +144,7 @@ def _browse(
     ids = list(by_id.keys())
     people_by_photo = _attach_people(conn, ids)
 
-    results = []
-    for pid in ids:
-        row = by_id[pid]
-        results.append(
-            SearchResult(
-                id=pid,
-                caption=row.get("caption"),
-                taken_at=row.get("taken_at"),
-                storage_path=row["storage_path"],
-                score=0.0,
-                location_name=row.get("location_name"),
-                tags=row.get("tags") or [],
-                people=people_by_photo.get(pid, []),
-                activities=row.get("activities") or [],
-                content_type=row.get("content_type"),
-                subject_type=row.get("subject_type"),
-                setting_type=row.get("setting_type"),
-                sharpness=row.get("sharpness"),
-                face_clarity_score=row.get("face_clarity_score"),
-                primary_focus=row.get("primary_focus"),
-                indoor_outdoor=row.get("indoor_outdoor"),
-            )
-        )
+    results = [_row_to_result(by_id[pid], people_by_photo.get(pid, []), 0.0) for pid in ids]
     return results, has_more
 
 
@@ -216,31 +215,11 @@ def _vector_search(
     people_by_photo = _attach_people(conn, returned_ids)
 
     # collect all filtered results in chroma rank order
-    all_results = []
-    for photo_id, dist in zip(ids, distances):
-        if photo_id not in by_id:
-            continue
-        row = by_id[photo_id]
-        all_results.append(
-            SearchResult(
-                id=photo_id,
-                caption=row.get("caption"),
-                taken_at=row.get("taken_at"),
-                storage_path=row["storage_path"],
-                score=1.0 - dist,
-                location_name=row.get("location_name"),
-                tags=row.get("tags") or [],
-                people=people_by_photo.get(photo_id, []),
-                activities=row.get("activities") or [],
-                content_type=row.get("content_type"),
-                subject_type=row.get("subject_type"),
-                setting_type=row.get("setting_type"),
-                sharpness=row.get("sharpness"),
-                face_clarity_score=row.get("face_clarity_score"),
-                primary_focus=row.get("primary_focus"),
-                indoor_outdoor=row.get("indoor_outdoor"),
-            )
-        )
+    all_results = [
+        _row_to_result(by_id[photo_id], people_by_photo.get(photo_id, []), 1.0 - dist)
+        for photo_id, dist in zip(ids, distances)
+        if photo_id in by_id
+    ]
 
     has_more = len(all_results) > offset + limit
     return all_results[offset : offset + limit], has_more

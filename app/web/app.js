@@ -608,47 +608,45 @@ function applyRichData(data) {
     { key: 'face_clarity_score',label: 'face' },
     { key: 'content_type',      label: 'type' },
   ];
-  const hasAny = analysisFields.some(f => data[f.key] != null);
-  if (hasAny) {
-    analysisFields.forEach(({ key, label }) => {
-      const val = data[key];
-      if (val == null) return;
-      const row = document.createElement('div');
-      row.className = 'lb-analysis-row';
-      const lbl = document.createElement('span');
-      lbl.className = 'lb-analysis-label';
-      lbl.textContent = label;
-      const chip = document.createElement('span');
-      chip.className = 'lb-analysis-chip';
+  lbAnalysisGrid.innerHTML = '';
+  analysisFields.forEach(({ key, label }) => {
+    const val = data[key];
+    if (val == null) return;
+    const row = document.createElement('div');
+    row.className = 'lb-analysis-row';
+    const lbl = document.createElement('span');
+    lbl.className = 'lb-analysis-label';
+    lbl.textContent = label;
+    const chip = document.createElement('span');
+    chip.className = 'lb-analysis-chip';
 
-      if (key === 'sharpness') {
-        chip.classList.add(
-          val === 'sharp'           ? 'lb-analysis-chip--green'
-          : val === 'very_blurry'   ? 'lb-analysis-chip--red'
-          : 'lb-analysis-chip--amber'
-        );
-        chip.textContent = val.replace('_', ' ');
-      } else if (key === 'face_clarity_score') {
-        const score = Number(val);
-        chip.classList.add(
-          score >= 4 ? 'lb-analysis-chip--green'
-          : score === 3 ? 'lb-analysis-chip--amber'
-          : 'lb-analysis-chip--red'
-        );
-        chip.textContent = '●'.repeat(score) + '○'.repeat(5 - score) + ' ' + score;
-      } else if (key === 'content_type' && val !== 'photo') {
-        chip.classList.add('lb-analysis-chip--amber');
-        chip.textContent = val;
-      } else {
-        chip.textContent = val.replace(/_/g, ' ');
-      }
+    if (key === 'sharpness') {
+      chip.classList.add(
+        val === 'sharp'           ? 'lb-analysis-chip--green'
+        : val === 'very_blurry'   ? 'lb-analysis-chip--red'
+        : 'lb-analysis-chip--amber'
+      );
+      chip.textContent = val.replace(/_/g, ' ');
+    } else if (key === 'face_clarity_score') {
+      const score = Number(val);
+      chip.classList.add(
+        score >= 4 ? 'lb-analysis-chip--green'
+        : score === 3 ? 'lb-analysis-chip--amber'
+        : 'lb-analysis-chip--red'
+      );
+      chip.textContent = '●'.repeat(score) + '○'.repeat(5 - score) + ' ' + score;
+    } else if (key === 'content_type' && val !== 'photo') {
+      chip.classList.add('lb-analysis-chip--amber');
+      chip.textContent = val;
+    } else {
+      chip.textContent = val.replace(/_/g, ' ');
+    }
 
-      row.appendChild(lbl);
-      row.appendChild(chip);
-      lbAnalysisGrid.appendChild(row);
-    });
-    lbAnalysisWrap.removeAttribute('hidden');
-  }
+    row.appendChild(lbl);
+    row.appendChild(chip);
+    lbAnalysisGrid.appendChild(row);
+  });
+  if (lbAnalysisGrid.children.length > 0) lbAnalysisWrap.removeAttribute('hidden');
 }
 
 function setLbDate(takenAt) {
