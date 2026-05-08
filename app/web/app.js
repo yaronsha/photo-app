@@ -30,9 +30,11 @@ const lbPeople    = document.getElementById('lb-people');
 const lbPeopleWrap= document.getElementById('lb-people-wrap');
 const lbTags      = document.getElementById('lb-tags');
 const lbTagsWrap  = document.getElementById('lb-tags-wrap');
-const lbDesc      = document.getElementById('lb-description');
-const lbDescWrap  = document.getElementById('lb-desc-wrap');
-const lbCounter   = document.getElementById('lb-counter');
+const lbDesc          = document.getElementById('lb-description');
+const lbDescWrap      = document.getElementById('lb-desc-wrap');
+const lbAnalysisWrap  = document.getElementById('lb-analysis-wrap');
+const lbAnalysisGrid  = document.getElementById('lb-analysis-grid');
+const lbCounter       = document.getElementById('lb-counter');
 const lbClose     = document.getElementById('lb-close');
 const lbPrev      = document.getElementById('lb-prev');
 const lbNext      = document.getElementById('lb-next');
@@ -394,6 +396,18 @@ function _makeCard(r, index) {
   img.decoding   = 'async';
   wrap.appendChild(img);
 
+  const badgeText = r.sharpness === 'very_blurry'    ? 'blurry'
+                  : r.sharpness === 'slightly_blurry' ? '~blurry'
+                  : r.content_type === 'document'     ? 'doc'
+                  : r.content_type === 'other'        ? 'other'
+                  : null;
+  if (badgeText) {
+    const badge = document.createElement('span');
+    badge.className = 'card-badge' + (r.sharpness === 'very_blurry' ? ' card-badge--red' : '');
+    badge.textContent = badgeText;
+    wrap.appendChild(badge);
+  }
+
   const info = document.createElement('div');
   info.className = 'card-info';
 
@@ -531,6 +545,8 @@ async function openLightbox(index) {
   lbPeopleWrap.setAttribute('hidden', '');
   lbTagsWrap.setAttribute('hidden', '');
   lbDescWrap.setAttribute('hidden', '');
+  lbAnalysisWrap.setAttribute('hidden', '');
+  lbAnalysisGrid.innerHTML = '';
   updateLbCounter();
   updateNavBtns();
 
@@ -582,6 +598,55 @@ function applyRichData(data) {
     lbDesc.textContent = data.description;
     lbDescWrap.removeAttribute('hidden');
   }
+
+  const analysisFields = [
+    { key: 'subject_type',      label: 'subject' },
+    { key: 'primary_focus',     label: 'focus' },
+    { key: 'setting_type',      label: 'setting' },
+    { key: 'indoor_outdoor',    label: 'in/out' },
+    { key: 'sharpness',         label: 'sharpness' },
+    { key: 'face_clarity_score',label: 'face' },
+    { key: 'content_type',      label: 'type' },
+  ];
+  lbAnalysisGrid.innerHTML = '';
+  analysisFields.forEach(({ key, label }) => {
+    const val = data[key];
+    if (val == null) return;
+    const row = document.createElement('div');
+    row.className = 'lb-analysis-row';
+    const lbl = document.createElement('span');
+    lbl.className = 'lb-analysis-label';
+    lbl.textContent = label;
+    const chip = document.createElement('span');
+    chip.className = 'lb-analysis-chip';
+
+    if (key === 'sharpness') {
+      chip.classList.add(
+        val === 'sharp'           ? 'lb-analysis-chip--green'
+        : val === 'very_blurry'   ? 'lb-analysis-chip--red'
+        : 'lb-analysis-chip--amber'
+      );
+      chip.textContent = val.replace(/_/g, ' ');
+    } else if (key === 'face_clarity_score') {
+      const score = Number(val);
+      chip.classList.add(
+        score >= 4 ? 'lb-analysis-chip--green'
+        : score === 3 ? 'lb-analysis-chip--amber'
+        : 'lb-analysis-chip--red'
+      );
+      chip.textContent = '●'.repeat(score) + '○'.repeat(5 - score) + ' ' + score;
+    } else if (key === 'content_type' && val !== 'photo') {
+      chip.classList.add('lb-analysis-chip--amber');
+      chip.textContent = val;
+    } else {
+      chip.textContent = val.replace(/_/g, ' ');
+    }
+
+    row.appendChild(lbl);
+    row.appendChild(chip);
+    lbAnalysisGrid.appendChild(row);
+  });
+  if (lbAnalysisGrid.children.length > 0) lbAnalysisWrap.removeAttribute('hidden');
 }
 
 function setLbDate(takenAt) {

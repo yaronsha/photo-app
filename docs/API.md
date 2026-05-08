@@ -60,7 +60,11 @@ Hybrid semantic + filter search.
       "activities": ["walking"],
       "content_type": "photo",
       "subject_type": "group",
-      "setting_type": "beach"
+      "primary_focus": "people",
+      "indoor_outdoor": "outdoor",
+      "setting_type": "beach",
+      "sharpness": "sharp",
+      "face_clarity_score": 4
     }
   ],
   "has_more": false

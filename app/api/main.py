@@ -79,6 +79,10 @@ def search_endpoint(
                 "content_type": r.content_type,
                 "subject_type": r.subject_type,
                 "setting_type": r.setting_type,
+                "sharpness": r.sharpness,
+                "face_clarity_score": r.face_clarity_score,
+                "primary_focus": r.primary_focus,
+                "indoor_outdoor": r.indoor_outdoor,
             }
             for r in results
         ],

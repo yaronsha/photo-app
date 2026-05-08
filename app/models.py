@@ -32,3 +32,7 @@ class SearchResult:
     content_type: str | None = None
     subject_type: str | None = None
     setting_type: str | None = None
+    sharpness: str | None = None
+    face_clarity_score: int | None = None
+    primary_focus: str | None = None
+    indoor_outdoor: str | None = None
