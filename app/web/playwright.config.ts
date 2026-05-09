@@ -12,7 +12,7 @@ export default defineConfig({
     url: 'http://localhost:5173',
     reuseExistingServer: true,
     timeout: 30000,
-    cwd: '/Users/yaron_private/family-photos-app/app/web',
+    cwd: new URL('.', import.meta.url).pathname,
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
