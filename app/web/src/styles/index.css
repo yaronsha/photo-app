@@ -30,21 +30,3 @@
   }
 }
 
-/* react-day-picker overrides to match Gallery Pro indigo theme */
-.rdp-day_selected,
-.rdp-day_selected:focus-visible,
-.rdp-day_selected:hover {
-  background-color: #2e3a59 !important;
-  color: #ffffff !important;
-}
-
-.rdp-day_range_middle {
-  background-color: #cbdafd !important;
-  color: #1c1b1b !important;
-}
-
-.rdp-day_range_start,
-.rdp-day_range_end {
-  background-color: #182442 !important;
-  color: #ffffff !important;
-}

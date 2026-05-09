@@ -1,7 +1,5 @@
 import { useRef, useEffect } from 'react';
-import { DayPicker } from 'react-day-picker';
-import type { DateRange } from 'react-day-picker';
-import 'react-day-picker/style.css';
+import { MonthYearPicker, type MonthYear } from './MonthYearPicker';
 
 interface DateRangePopoverProps {
   dateFrom: string;
@@ -10,17 +8,25 @@ interface DateRangePopoverProps {
   onClose: () => void;
 }
 
-function parseIso(iso: string): Date | undefined {
-  if (!iso) return undefined;
-  const d = new Date(iso + 'T00:00:00');
-  return isNaN(d.getTime()) ? undefined : d;
+function parseIso(iso: string): MonthYear | null {
+  if (!iso) return null;
+  const m = /^(\d{4})-(\d{2})/.exec(iso);
+  if (!m) return null;
+  return { year: Number(m[1]), month: Number(m[2]) - 1 };
 }
 
-function toIsoDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+function fromIso(my: MonthYear | null): string {
+  if (!my) return '';
+  const mm = String(my.month + 1).padStart(2, '0');
+  return `${my.year}-${mm}-01`;
+}
+
+function toIsoEnd(my: MonthYear | null): string {
+  if (!my) return '';
+  const lastDay = new Date(my.year, my.month + 1, 0).getDate();
+  const mm = String(my.month + 1).padStart(2, '0');
+  const dd = String(lastDay).padStart(2, '0');
+  return `${my.year}-${mm}-${dd}`;
 }
 
 export function DateRangePopover({
@@ -31,18 +37,14 @@ export function DateRangePopover({
 }: DateRangePopoverProps) {
   const ref = useRef<HTMLDivElement>(null);
 
-  // Click-outside to close
   useEffect(() => {
     function handler(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        onClose();
-      }
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     }
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [onClose]);
 
-  // Escape to close
   useEffect(() => {
     function handler(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose();
@@ -51,63 +53,42 @@ export function DateRangePopover({
     return () => document.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  const selected: DateRange = {
-    from: parseIso(dateFrom),
-    to: parseIso(dateTo),
-  };
+  const fromValue = parseIso(dateFrom);
+  const toValue = parseIso(dateTo);
 
-  function handleSelect(range: DateRange | undefined) {
-    const from = range?.from ? toIsoDate(range.from) : '';
-    const to = range?.to ? toIsoDate(range.to) : '';
-    onApply(from, to);
+  function handleFromChange(v: MonthYear | null) {
+    onApply(fromIso(v), dateTo);
   }
 
-  function handleClear() {
+  function handleToChange(v: MonthYear | null) {
+    onApply(dateFrom, toIsoEnd(v));
+  }
+
+  function handleClearAll() {
     onApply('', '');
-    onClose();
   }
 
   return (
     <div
       ref={ref}
-      className="absolute z-50 mt-xs bg-surface border border-outline-variant rounded-xl shadow-lg p-md"
+      className="absolute right-0 z-50 mt-xs bg-surface border border-outline-variant rounded-xl shadow-lg p-md flex flex-col gap-md"
       role="dialog"
       aria-label="Date range picker"
     >
-      <DayPicker
-        mode="range"
-        numberOfMonths={2}
-        selected={selected}
-        onSelect={handleSelect}
-        classNames={{
-          root: 'text-body-md',
-          months: 'flex gap-lg flex-wrap',
-          month_caption: 'text-label-md font-bold text-on-surface mb-sm px-md',
-          nav: 'flex items-center gap-xs',
-          button_previous: 'w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container-high text-on-surface-variant',
-          button_next: 'w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container-high text-on-surface-variant',
-          weeks: '',
-          week: 'flex',
-          weekday: 'w-9 h-9 flex items-center justify-center text-label-sm text-on-surface-variant uppercase',
-          day: 'w-9 h-9 flex items-center justify-center',
-          day_button: 'w-9 h-9 flex items-center justify-center rounded-full hover:bg-surface-container-high text-body-md transition-colors',
-          selected: 'bg-primary-container text-on-primary',
-          range_start: '!bg-primary !text-on-primary rounded-full',
-          range_end: '!bg-primary !text-on-primary rounded-full',
-          range_middle: 'bg-secondary-container text-on-secondary-container rounded-none',
-          today: 'font-bold text-primary',
-          outside: 'text-outline-variant',
-          disabled: 'opacity-40 cursor-not-allowed',
-        }}
-      />
-      <div className="flex justify-end gap-sm mt-sm border-t border-outline-variant pt-sm">
+      <div className="flex gap-lg">
+        <MonthYearPicker label="From" value={fromValue} onChange={handleFromChange} />
+        <MonthYearPicker label="To" value={toValue} onChange={handleToChange} />
+      </div>
+      <div className="flex justify-between items-center border-t border-outline-variant pt-sm">
         <button
-          onClick={handleClear}
-          className="px-md py-xs rounded-xl border border-outline-variant text-on-surface-variant text-label-md hover:bg-surface-container-high transition-colors"
+          type="button"
+          onClick={handleClearAll}
+          className="px-md py-xs rounded-xl text-label-md text-on-surface-variant hover:bg-surface-container-high transition-colors"
         >
-          Clear
+          Clear all
         </button>
         <button
+          type="button"
           onClick={onClose}
           className="px-md py-xs rounded-xl bg-primary text-on-primary text-label-md hover:opacity-90 transition-opacity"
         >
