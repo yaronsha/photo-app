@@ -1,4 +1,4 @@
-"""Session helpers — context manager + FastAPI dependency."""
+"""Session helpers — factory + auto-committing context manager."""
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -21,19 +21,6 @@ def SessionLocal() -> Session:
 @contextmanager
 def get_session() -> Iterator[Session]:
     """Context manager: commit on clean exit, rollback on exception."""
-    session = SessionLocal()
-    try:
-        yield session
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
-
-
-def db_session() -> Iterator[Session]:
-    """FastAPI dependency — yields a session with the same lifecycle."""
     session = SessionLocal()
     try:
         yield session

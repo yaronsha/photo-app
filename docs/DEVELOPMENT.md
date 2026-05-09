@@ -185,7 +185,7 @@ uv run photos-index --step scan          # re-build DB
 # then google_metadata, location, caption, embed as needed
 ```
 
-The schema is recreated automatically — `init_schema` (which runs on app startup and at the top of every indexer step) calls `Base.metadata.create_all` for the SQLAlchemy ORM models in `app/db/orm.py`.
+The schema is recreated automatically — `init_schema` (called on FastAPI startup and at the top of `scan`, `google_metadata`, and `location` indexer steps; `caption` and `embed` assume `scan` ran first) calls `Base.metadata.create_all` for the SQLAlchemy ORM models in `app/db/orm.py`.
 
 ### Database URL
 

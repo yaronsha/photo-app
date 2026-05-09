@@ -45,7 +45,7 @@ def get_engine(url: str | None = None) -> Engine:
     else:
         connect_args = {}
 
-    engine = create_engine(url, connect_args=connect_args, future=True)
+    engine = create_engine(url, connect_args=connect_args)
     _engines[url] = engine
     return engine
 

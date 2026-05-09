@@ -5,7 +5,7 @@ from sqlalchemy import or_, select, update
 
 from ..chroma import assert_embed_model, get_collection
 from ..config import get_settings
-from ..db import Photo, get_session
+from ..db import Photo, SessionLocal
 from .providers import get_embed_provider
 
 
@@ -16,7 +16,11 @@ def run_embed(reindex: bool = False, limit: int | None = None) -> int:
     print(f"embed: model={settings.embed_model} reindex={reindex} limit={limit}")
     assert_embed_model(settings.embed_model)
 
-    with get_session() as session:
+    # Session opened directly (not via the auto-committing context manager) so
+    # the per-row commit below is the single, intentional commit point — keeps
+    # the SQLite write lock window minimal and lets caption.py interleave.
+    session = SessionLocal()
+    try:
         stmt = select(
             Photo.id,
             Photo.caption,
@@ -35,7 +39,7 @@ def run_embed(reindex: bool = False, limit: int | None = None) -> int:
                     Photo.embed_schema_version < Photo.caption_schema_version,
                 )
             )
-        if limit:
+        if limit is not None and limit > 0:
             stmt = stmt.limit(limit)
 
         rows = session.execute(stmt).all()
@@ -98,6 +102,8 @@ def run_embed(reindex: bool = False, limit: int | None = None) -> int:
                     f"  [{i}/{total}] {embedded} embedded, {skipped} skipped"
                     f" | {rate:.1f}/s | ETA {eta:.0f}s"
                 )
+    finally:
+        session.close()
 
     elapsed = time.time() - t0
     print(
