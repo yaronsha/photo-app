@@ -4,6 +4,7 @@
 
 - Python 3.11+
 - [`uv`](https://github.com/astral-sh/uv)
+- Node 20+ + npm (for the React frontend)
 - `OPENAI_API_KEY` (for caption + embed steps)
 - _(Phase 2)_ CMake + dlib for `face_recognition`
 
@@ -28,10 +29,24 @@ $EDITOR config.json
 
 ## Run Commands
 
-### Web app
+### Web app — production (FastAPI serves built React)
 ```bash
+# 1. Build the frontend (once, or after frontend changes)
+cd app/web && npm install && npm run build && cd ../..
+
+# 2. Start FastAPI; serves app/web/dist/ at /static and dist/index.html at / and /games
 uv run uvicorn app.api.main:app --reload --port 8000
 # open http://localhost:8000
+```
+
+### Web app — frontend dev (HMR)
+```bash
+# Terminal 1
+uv run uvicorn app.api.main:app --reload --port 8000
+
+# Terminal 2 — Vite dev server, proxies /people /search /thumb /photo to :8000
+cd app/web && npm run dev
+# open http://localhost:5173
 ```
 
 ### Indexer
@@ -90,10 +105,13 @@ family-photos-app/
 │   │   └── query.py          — vector search + SQLite filter join
 │   ├── api/
 │   │   └── main.py           — FastAPI endpoints
-│   └── web/
-│       ├── index.html
-│       ├── app.js            — search, filters, lightbox, datepicker
-│       └── style.css
+│   └── web/                  — Vite + React + TS + Tailwind frontend
+│       ├── index.html        — Vite entry
+│       ├── package.json
+│       ├── vite.config.ts    — base /static/, dev proxy to :8000
+│       ├── tailwind.config.ts — Gallery Pro theme tokens
+│       ├── src/              — React source (layout/, features/, hooks/, api/)
+│       └── dist/             — built output, served by FastAPI /static (gitignored)
 ├── tests/
 │   ├── conftest.py           — shared fixtures (tmp_env, make_png)
 │   ├── test_scan.py

@@ -143,13 +143,15 @@ Detail in `app/search/query.py`. People filter supports `any` (default) and `all
 
 ## Frontend
 
-Single-page vanilla. No framework. Three views toggled by header nav: search, games (placeholder), lightbox modal.
+React 18 + TypeScript + Vite + Tailwind, "Gallery Pro" design tokens (Inter, indigo `#2E3A59`, achromatic neutrals). Routes: `/` gallery, `/games` placeholder. Photo detail = overlay modal (no client URL).
 
-- `app/web/index.html` — markup
-- `app/web/app.js` — fetch + render + lightbox + datepicker (~613 LOC)
-- `app/web/style.css` — Playfair Display + Lora typography
+- `app/web/src/layout/` — `SideNav`, `TopBar`, `MobileBottomNav`
+- `app/web/src/features/gallery/` — `GalleryPage`, `PeopleFilter`, `DateRangeChip`, `DateRangePopover`, `PhotoGrid`, `Pagination`
+- `app/web/src/features/detail/` — `PhotoDetailModal`, `PhotoSidebar`, `PhotoLabels`
+- `app/web/src/api/` — typed client + `@tanstack/react-query` hooks (`useInfiniteQuery` for paginated `/search`)
+- Date picker = `react-day-picker` v9 in `@floating-ui/react` popover behind a chip
 
-Frontend size becoming substantial — see [REFACTOR_SUGGESTIONS.md](REFACTOR_SUGGESTIONS.md).
+FastAPI mounts `app/web/dist/` at `/static/` and returns `dist/index.html` for `/` and `/games`. Dev: Vite on :5173 proxies `/people /search /thumb /photo` to FastAPI on :8000.
 
 ## Forkable Design
 

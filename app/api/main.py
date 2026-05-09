@@ -24,6 +24,7 @@ def _validate_iso_date(value: str | None, field: str) -> str | None:
 app = FastAPI(title="Family Photos")
 
 _WEB_DIR = Path(__file__).parent.parent / "web"
+_DIST_DIR = _WEB_DIR / "dist"
 
 
 @app.on_event("startup")
@@ -185,9 +186,14 @@ def _generate_thumb(src: Path, dest: Path) -> None:
     img.save(str(dest), "JPEG", quality=85)
 
 
-app.mount("/static", StaticFiles(directory=str(_WEB_DIR)), name="static")
+app.mount("/static", StaticFiles(directory=str(_DIST_DIR)), name="static")
 
 
 @app.get("/")
 def index():
-    return FileResponse(str(_WEB_DIR / "index.html"))
+    return FileResponse(str(_DIST_DIR / "index.html"))
+
+
+@app.get("/games")
+def games_route():
+    return FileResponse(str(_DIST_DIR / "index.html"))
