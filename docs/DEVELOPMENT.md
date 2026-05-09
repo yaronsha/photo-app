@@ -86,7 +86,7 @@ family-photos-app/
 ├── app/
 │   ├── __init__.py
 │   ├── config.py             — Settings model, env loading, paths
-│   ├── db.py                 — sqlite3 conn, init_schema, row_to_dict
+│   ├── db/                   — SQLAlchemy 2.0 ORM, lazy engine, sessions, upserts
 │   ├── chroma.py             — collection helpers, embed_model guard
 │   ├── models.py             — SearchResult dataclass
 │   ├── indexer/
@@ -184,6 +184,12 @@ rm -rf data/photos.db data/chroma data/thumbs
 uv run photos-index --step scan          # re-build DB
 # then google_metadata, location, caption, embed as needed
 ```
+
+The schema is recreated automatically — `init_schema` (which runs on app startup and at the top of every indexer step) calls `Base.metadata.create_all` for the SQLAlchemy ORM models in `app/db/orm.py`.
+
+### Database URL
+
+Default: `sqlite:///{data_dir}/photos.db`. Override via `DATABASE_URL` env var (e.g. `sqlite:///:memory:` for tests, or a Postgres URL once Supabase migration lands). The engine is built lazily on first use and cached per-URL.
 
 ### Add a new game type
 1. Create `app/games/{game}.py` (module not yet implemented — see ROADMAP)

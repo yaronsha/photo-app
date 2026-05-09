@@ -11,11 +11,11 @@ Loaded automatically when working under `app/indexer/`. Pairs with [docs/INDEXIN
 
 ## SQLite Lock Discipline
 
-WAL mode is on (`PRAGMA journal_mode=WAL`), `timeout=30`. But:
+WAL mode is on (`PRAGMA journal_mode=WAL`), engine `timeout=30`. SQLAlchemy 2.0 sessions are the API — `from app.db import get_session`. But:
 
-- **Caption** (async, semaphore=6): tasks share one `conn`. Per-row `conn.commit()` releases lock immediately. Do not hold a transaction across `await` points without committing.
-- **Embed** (sync, sequential): commits per row for the same reason — caption + embed can run concurrently in separate processes without locking each other out.
-- Never `BEGIN; ...long work...; COMMIT;` in these steps. Short transactions only.
+- **Caption** (async, semaphore=6): each task opens its own `with get_session() as s:` context, executes a single short `UPDATE`, and exits. Concurrent writers serialize via SQLite's busy timeout. Do not share a single session across `await` points.
+- **Embed** (sync, sequential): one session opened at the top, but `session.commit()` after every row — releases the lock so caption can interleave.
+- Never `with session.begin(): ...long work...` in these steps. Short transactions only.
 
 If you add a new step that runs concurrently with caption/embed, follow the same short-tx pattern.
 
@@ -96,7 +96,7 @@ Both go through `app/indexer/providers/__init__.py`. Currently OpenAI only — i
 ## When Adding a New Step
 
 1. Create `app/indexer/{step}.py` with `run_{step}(reindex: bool = False, ...)`
-2. Add `*_indexed_at` column in `db.py` (use `PHOTOS_ATTRIBUTE_COLUMNS` for non-essential cols, ALTER pattern handles it)
+2. Add `*_indexed_at` column to the `Photo` ORM model in `app/db/orm.py` (use `app/db/schema.py` `PHOTOS_ATTRIBUTE_COLUMNS` for non-essential cols, ALTER pattern handles older field DBs)
 3. Wire into `cli.py` (`elif args.step == "...":`)
 4. Update `--step all` if it belongs in default pipeline
 5. Document in [docs/INDEXING.md](../../docs/INDEXING.md)

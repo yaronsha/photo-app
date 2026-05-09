@@ -32,7 +32,7 @@
 | Layer | Tech |
 |---|---|
 | Backend | Python 3.11+ · FastAPI · uvicorn |
-| Metadata DB | SQLite (WAL mode, foreign keys ON) |
+| Metadata DB | SQLite via SQLAlchemy 2.0 ORM (WAL mode, foreign keys ON) — `DATABASE_URL` env can swap in Postgres later |
 | Vector DB | ChromaDB (PersistentClient, cosine space) |
 | Vision LLM | OpenAI `gpt-4.1-nano` (config: `caption_model`) |
 | Embeddings | OpenAI `text-embedding-3-small` (config: `embed_model`) |
@@ -71,6 +71,8 @@ photos/
 ```
 
 ## SQLite Schema
+
+ORM models live in `app/db/orm.py`; `Base.metadata.create_all` (called via `init_schema`) initializes the schema on app startup. The `JSONString` `TypeDecorator` round-trips list/dict columns (`tags`, `activities`, `google_people`, `face_bbox`) as JSON-encoded TEXT.
 
 ```sql
 photos (

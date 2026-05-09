@@ -1,11 +1,14 @@
 import hashlib
 import json
 import shutil
-import sqlite3 as _sqlite
 from datetime import datetime, timezone
 from pathlib import Path
 
+from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
+
 from ..config import get_settings
+from ..db import Photo, get_session
 
 ACCEPTED_EXTS = {".jpg", ".jpeg", ".png", ".heic"}
 
@@ -52,6 +55,23 @@ def _year_from_folder(folder_name: str) -> int | None:
     return None
 
 
+def _load_seen_ids(db_path: Path) -> set[str]:
+    """Read existing photo IDs from the DB, if any.
+
+    The merge step is happy if the photos table is missing or the file
+    isn't a populated DB yet — that just means everything is unseen.
+    """
+    if not db_path.exists():
+        return set()
+    try:
+        with get_session() as session:
+            rows = session.execute(select(Photo.id)).all()
+            return {r[0] for r in rows}
+    except OperationalError:
+        # Table absent on a freshly-touched DB — treat as no prior data.
+        return set()
+
+
 def run_merge(folders: list[Path], dry_run: bool = False) -> dict:
     settings = get_settings()
     photos_dir = settings.photos_dir
@@ -61,11 +81,7 @@ def run_merge(folders: list[Path], dry_run: bool = False) -> dict:
         photos_dir.mkdir(parents=True, exist_ok=True)
         sidecars_dir.mkdir(parents=True, exist_ok=True)
 
-    seen: set[str] = set()
-    if settings.db_path.exists():
-        con = _sqlite.connect(settings.db_path)
-        seen.update(row[0] for row in con.execute("SELECT id FROM photos"))
-        con.close()
+    seen: set[str] = _load_seen_ids(settings.db_path)
 
     merged = skipped_dupe = no_sidecar = 0
     items: list[tuple[str, Path]] = []

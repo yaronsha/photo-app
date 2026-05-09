@@ -7,38 +7,42 @@ Populates location_name column for photos that have GPS coords.
 from datetime import datetime, timezone
 
 import reverse_geocoder
+from sqlalchemy import select, update
 
-from ..db import get_conn, init_schema
+from ..db import Photo, get_session, init_schema
 
 
 def run_location(reindex: bool = False) -> int:
-    conn = get_conn()
-    init_schema(conn)
+    init_schema()
 
-    query = """
-        SELECT id, lat, lng FROM photos
-        WHERE lat IS NOT NULL AND lng IS NOT NULL
-    """ + ("" if reindex else " AND location_name IS NULL")
-
-    rows = conn.execute(query).fetchall()
-    if not rows:
-        print("location: nothing to geocode")
-        return 0
-
-    coords = [(row["lat"], row["lng"]) for row in rows]
-    results = reverse_geocoder.search(coords, verbose=False)
-
-    now = datetime.now(timezone.utc).isoformat()
-    for row, result in zip(rows, results):
-        city = result.get("name", "")
-        country = result.get("cc", "")
-        location_name = f"{city}, {country}" if city and country else city or country or None
-        conn.execute(
-            "UPDATE photos SET location_name = ? WHERE id = ?",
-            (location_name, row["id"]),
+    with get_session() as session:
+        stmt = select(Photo.id, Photo.lat, Photo.lng).where(
+            Photo.lat.is_not(None), Photo.lng.is_not(None)
         )
+        if not reindex:
+            stmt = stmt.where(Photo.location_name.is_(None))
+        rows = session.execute(stmt).all()
 
-    conn.commit()
-    conn.close()
-    print(f"location: {len(rows)} geocoded")
-    return len(rows)
+        if not rows:
+            print("location: nothing to geocode")
+            return 0
+
+        coords = [(row.lat, row.lng) for row in rows]
+        results = reverse_geocoder.search(coords, verbose=False)
+
+        for row, result in zip(rows, results):
+            city = result.get("name", "")
+            country = result.get("cc", "")
+            location_name = (
+                f"{city}, {country}" if city and country else city or country or None
+            )
+            session.execute(
+                update(Photo)
+                .where(Photo.id == row.id)
+                .values(location_name=location_name)
+            )
+
+        count = len(rows)
+
+    print(f"location: {count} geocoded")
+    return count

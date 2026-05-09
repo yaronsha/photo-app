@@ -1,6 +1,9 @@
 """Tests for app/indexer/location.py — offline reverse geocoding."""
-import sqlite3
 from unittest.mock import patch
+
+from sqlalchemy import select, update
+
+from app.db import Photo, get_session
 
 from .conftest import make_png
 
@@ -13,14 +16,14 @@ def _scan_with_gps(tmp_env, name: str, lat: float | None, lng: float | None) -> 
     import app.indexer.scan as scan_mod
     scan_mod.run_scan()
 
-    conn = sqlite3.connect(str(tmp_env["data_dir"] / "photos.db"))
-    pid = conn.execute(
-        "SELECT id FROM photos WHERE original_filename = ?", (name,)
-    ).fetchone()[0]
-    if lat is not None and lng is not None:
-        conn.execute("UPDATE photos SET lat = ?, lng = ? WHERE id = ?", (lat, lng, pid))
-        conn.commit()
-    conn.close()
+    with get_session() as s:
+        pid = s.execute(
+            select(Photo.id).where(Photo.original_filename == name)
+        ).scalar_one()
+        if lat is not None and lng is not None:
+            s.execute(
+                update(Photo).where(Photo.id == pid).values(lat=lat, lng=lng)
+            )
     return pid
 
 
@@ -33,10 +36,9 @@ def test_location_populates_name(tmp_env):
         count = run_location()
 
     assert count == 1
-    conn = sqlite3.connect(str(tmp_env["data_dir"] / "photos.db"))
-    row = conn.execute("SELECT location_name FROM photos").fetchone()
-    conn.close()
-    assert row[0] == "Tel Aviv-Yafo, IL"
+    with get_session() as s:
+        row = s.query(Photo).first()
+    assert row.location_name == "Tel Aviv-Yafo, IL"
 
 
 def test_location_skips_photos_without_gps(tmp_env):
@@ -52,11 +54,10 @@ def test_location_skips_photos_without_gps(tmp_env):
 
 def test_location_skips_already_geocoded(tmp_env):
     pid = _scan_with_gps(tmp_env, "img.png", 32.0853, 34.7818)
-    db_path = tmp_env["data_dir"] / "photos.db"
-    conn = sqlite3.connect(str(db_path))
-    conn.execute("UPDATE photos SET location_name = 'Pre-set' WHERE id = ?", (pid,))
-    conn.commit()
-    conn.close()
+    with get_session() as s:
+        s.execute(
+            update(Photo).where(Photo.id == pid).values(location_name="Pre-set")
+        )
 
     with patch("app.indexer.location.reverse_geocoder.search") as mock_search:
         from app.indexer.location import run_location
@@ -68,21 +69,19 @@ def test_location_skips_already_geocoded(tmp_env):
 
 def test_location_reindex_overwrites(tmp_env):
     pid = _scan_with_gps(tmp_env, "img.png", 32.0853, 34.7818)
-    db_path = tmp_env["data_dir"] / "photos.db"
-    conn = sqlite3.connect(str(db_path))
-    conn.execute("UPDATE photos SET location_name = 'Stale' WHERE id = ?", (pid,))
-    conn.commit()
-    conn.close()
+    with get_session() as s:
+        s.execute(
+            update(Photo).where(Photo.id == pid).values(location_name="Stale")
+        )
 
     fake_results = [{"name": "Updated City", "cc": "US"}]
     with patch("app.indexer.location.reverse_geocoder.search", return_value=fake_results):
         from app.indexer.location import run_location
         run_location(reindex=True)
 
-    conn = sqlite3.connect(str(db_path))
-    row = conn.execute("SELECT location_name FROM photos").fetchone()
-    conn.close()
-    assert row[0] == "Updated City, US"
+    with get_session() as s:
+        row = s.query(Photo).first()
+    assert row.location_name == "Updated City, US"
 
 
 def test_location_handles_missing_country_code(tmp_env):
@@ -93,10 +92,9 @@ def test_location_handles_missing_country_code(tmp_env):
         from app.indexer.location import run_location
         run_location()
 
-    conn = sqlite3.connect(str(tmp_env["data_dir"] / "photos.db"))
-    row = conn.execute("SELECT location_name FROM photos").fetchone()
-    conn.close()
-    assert row[0] == "Some Place"
+    with get_session() as s:
+        row = s.query(Photo).first()
+    assert row.location_name == "Some Place"
 
 
 def test_location_batches_all_coords_in_one_call(tmp_env):

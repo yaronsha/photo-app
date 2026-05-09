@@ -1,8 +1,11 @@
 from datetime import date, timedelta
 from typing import Literal
 
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session
+
 from ..chroma import get_collection
-from ..db import get_conn, row_to_dict
+from ..db import Person, Photo, PhotoPerson, get_session
 from ..indexer.providers import get_embed_provider
 from ..models import SearchResult
 
@@ -40,61 +43,70 @@ def search(
     if not has_query and not has_date and not has_person:
         return [], False
 
-    conn = get_conn()
-
-    if not has_query:
-        results, has_more = _browse(conn, lo, hi, person_ids, limit, offset, people_mode, include_docs)
-    else:
-        results, has_more = _vector_search(
-            conn, query, lo, hi, person_ids, limit, offset, people_mode, include_docs
+    with get_session() as session:
+        if not has_query:
+            return _browse(
+                session, lo, hi, person_ids, limit, offset, people_mode, include_docs
+            )
+        return _vector_search(
+            session, query, lo, hi, person_ids, limit, offset, people_mode, include_docs
         )
 
-    conn.close()
-    return results, has_more
 
-
-def _attach_people(conn, photo_ids: list[str]) -> dict[str, list[dict]]:
+def _attach_people(session: Session, photo_ids: list[str]) -> dict[str, list[dict]]:
     people_by_photo: dict[str, list[dict]] = {pid: [] for pid in photo_ids}
     if not photo_ids:
         return people_by_photo
-    pp_placeholders = ",".join("?" * len(photo_ids))
-    pp_rows = conn.execute(
-        f"""
-        SELECT pp.photo_id, p.id, p.name
-        FROM photo_people pp
-        JOIN people p ON p.id = pp.person_id
-        WHERE pp.photo_id IN ({pp_placeholders})
-        """,
-        photo_ids,
-    ).fetchall()
-    for pp in pp_rows:
-        people_by_photo[pp["photo_id"]].append({"id": pp["id"], "name": pp["name"]})
+    rows = session.execute(
+        select(PhotoPerson.photo_id, Person.id, Person.name)
+        .join(Person, Person.id == PhotoPerson.person_id)
+        .where(PhotoPerson.photo_id.in_(photo_ids))
+    ).all()
+    for photo_id, pid, pname in rows:
+        people_by_photo[photo_id].append({"id": pid, "name": pname})
     return people_by_photo
 
 
-def _row_to_result(row: dict, people: list[dict], score: float) -> SearchResult:
+def _photo_to_result(photo: Photo, people: list[dict], score: float) -> SearchResult:
     return SearchResult(
-        id=row["id"],
-        caption=row.get("caption"),
-        taken_at=row.get("taken_at"),
-        storage_path=row["storage_path"],
+        id=photo.id,
+        caption=photo.caption,
+        taken_at=photo.taken_at,
+        storage_path=photo.storage_path,
         score=score,
-        location_name=row.get("location_name"),
-        tags=row.get("tags") or [],
+        location_name=photo.location_name,
+        tags=photo.tags or [],
         people=people,
-        activities=row.get("activities") or [],
-        content_type=row.get("content_type"),
-        subject_type=row.get("subject_type"),
-        setting_type=row.get("setting_type"),
-        sharpness=row.get("sharpness"),
-        face_clarity_score=row.get("face_clarity_score"),
-        primary_focus=row.get("primary_focus"),
-        indoor_outdoor=row.get("indoor_outdoor"),
+        activities=photo.activities or [],
+        content_type=photo.content_type,
+        subject_type=photo.subject_type,
+        setting_type=photo.setting_type,
+        sharpness=photo.sharpness,
+        face_clarity_score=photo.face_clarity_score,
+        primary_focus=photo.primary_focus,
+        indoor_outdoor=photo.indoor_outdoor,
     )
 
 
+def _people_filter_clause(person_ids: list[str], people_mode: str):
+    """Return a clause restricting Photo.id to rows matching the people filter."""
+    if people_mode == "all":
+        subq = (
+            select(PhotoPerson.photo_id)
+            .where(PhotoPerson.person_id.in_(person_ids))
+            .group_by(PhotoPerson.photo_id)
+            .having(func.count(func.distinct(PhotoPerson.person_id)) == len(person_ids))
+        )
+    else:
+        subq = (
+            select(PhotoPerson.photo_id)
+            .where(PhotoPerson.person_id.in_(person_ids))
+        )
+    return Photo.id.in_(subq)
+
+
 def _browse(
-    conn,
+    session: Session,
     lo: str | None,
     hi: str | None,
     person_ids: list[str] | None,
@@ -103,53 +115,33 @@ def _browse(
     people_mode: Literal["any", "all"] = "any",
     include_docs: bool = False,
 ) -> tuple[list[SearchResult], bool]:
-    where: list[str] = ["taken_at IS NOT NULL"]
-    params: list = []
+    stmt = select(Photo).where(Photo.taken_at.is_not(None))
 
     if not include_docs:
-        where.append("(content_type = 'photo' OR content_type IS NULL)")
-
+        stmt = stmt.where(or_(Photo.content_type == "photo", Photo.content_type.is_(None)))
     if lo is not None:
-        where.append("taken_at >= ?")
-        params.append(lo)
+        stmt = stmt.where(Photo.taken_at >= lo)
     if hi is not None:
-        where.append("taken_at < ?")
-        params.append(hi)
+        stmt = stmt.where(Photo.taken_at < hi)
     if person_ids:
-        person_placeholders = ",".join("?" * len(person_ids))
-        if people_mode == "all":
-            where.append(
-                f"id IN (SELECT photo_id FROM photo_people "
-                f"WHERE person_id IN ({person_placeholders}) "
-                f"GROUP BY photo_id HAVING COUNT(DISTINCT person_id) = {len(person_ids)})"
-            )
-        else:
-            where.append(
-                f"id IN (SELECT photo_id FROM photo_people WHERE person_id IN ({person_placeholders}))"
-            )
-        params.extend(person_ids)
+        stmt = stmt.where(_people_filter_clause(person_ids, people_mode))
 
     # fetch limit+1 to detect has_more without a separate COUNT query
-    sql = (
-        f"SELECT * FROM photos WHERE {' AND '.join(where)} "
-        f"ORDER BY taken_at DESC LIMIT ? OFFSET ?"
-    )
-    params.extend([limit + 1, offset])
+    stmt = stmt.order_by(Photo.taken_at.desc()).limit(limit + 1).offset(offset)
 
-    rows = conn.execute(sql, params).fetchall()
-    has_more = len(rows) > limit
-    rows = rows[:limit]
+    photos = session.execute(stmt).scalars().all()
+    has_more = len(photos) > limit
+    photos = photos[:limit]
 
-    by_id = {r["id"]: row_to_dict(r) for r in rows}
-    ids = list(by_id.keys())
-    people_by_photo = _attach_people(conn, ids)
+    ids = [p.id for p in photos]
+    people_by_photo = _attach_people(session, ids)
 
-    results = [_row_to_result(by_id[pid], people_by_photo.get(pid, []), 0.0) for pid in ids]
+    results = [_photo_to_result(p, people_by_photo.get(p.id, []), 0.0) for p in photos]
     return results, has_more
 
 
 def _vector_search(
-    conn,
+    session: Session,
     query: str,
     lo: str | None,
     hi: str | None,
@@ -180,45 +172,28 @@ def _vector_search(
     if not ids:
         return [], False
 
-    id_placeholders = ",".join("?" * len(ids))
-    where: list[str] = [f"id IN ({id_placeholders})"]
-    params: list = list(ids)
+    stmt = select(Photo).where(Photo.id.in_(ids))
 
     if not include_docs:
-        where.append("(content_type = 'photo' OR content_type IS NULL)")
-
+        stmt = stmt.where(or_(Photo.content_type == "photo", Photo.content_type.is_(None)))
     if lo is not None:
-        where.append("taken_at >= ?")
-        params.append(lo)
+        stmt = stmt.where(Photo.taken_at >= lo)
     if hi is not None:
-        where.append("taken_at < ?")
-        params.append(hi)
+        stmt = stmt.where(Photo.taken_at < hi)
     if person_ids:
-        person_placeholders = ",".join("?" * len(person_ids))
-        if people_mode == "all":
-            where.append(
-                f"id IN (SELECT photo_id FROM photo_people "
-                f"WHERE person_id IN ({person_placeholders}) "
-                f"GROUP BY photo_id HAVING COUNT(DISTINCT person_id) = {len(person_ids)})"
-            )
-        else:
-            where.append(
-                f"id IN (SELECT photo_id FROM photo_people WHERE person_id IN ({person_placeholders}))"
-            )
-        params.extend(person_ids)
+        stmt = stmt.where(_people_filter_clause(person_ids, people_mode))
 
-    sql = f"SELECT * FROM photos WHERE {' AND '.join(where)}"
-    rows = conn.execute(sql, params).fetchall()
-    by_id = {r["id"]: row_to_dict(r) for r in rows}
+    photos = session.execute(stmt).scalars().all()
+    by_id = {p.id: p for p in photos}
 
     returned_ids = list(by_id.keys())
-    people_by_photo = _attach_people(conn, returned_ids)
+    people_by_photo = _attach_people(session, returned_ids)
 
     # collect all filtered results in chroma rank order
     all_results = [
-        _row_to_result(by_id[photo_id], people_by_photo.get(photo_id, []), 1.0 - dist)
-        for photo_id, dist in zip(ids, distances)
-        if photo_id in by_id
+        _photo_to_result(by_id[pid], people_by_photo.get(pid, []), 1.0 - dist)
+        for pid, dist in zip(ids, distances)
+        if pid in by_id
     ]
 
     has_more = len(all_results) > offset + limit

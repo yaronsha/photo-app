@@ -63,7 +63,7 @@ See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for full setup and command refere
 | Layer | Choice |
 |---|---|
 | Backend | Python 3.11+ · FastAPI · uvicorn |
-| Metadata | SQLite (WAL mode) |
+| Metadata | SQLite via SQLAlchemy 2.0 ORM (WAL) — Postgres-ready |
 | Vectors | ChromaDB (local persistent) |
 | Vision LLM | OpenAI `gpt-4.1-nano` (Phase 1 default) |
 | Embeddings | OpenAI `text-embedding-3-small` |

@@ -1,8 +1,9 @@
 """Tests for app/indexer/merge.py — Google Takeout merge step."""
 import hashlib
 import json
-import sqlite3
 from pathlib import Path
+
+from app.db import Photo, get_session, init_schema
 
 from .conftest import make_png
 
@@ -91,18 +92,13 @@ def test_merge_dedup_against_existing_db(tmp_env, tmp_path):
     photo_id = _sha256_id(photo)
 
     # Pre-seed DB with that photo_id (simulating a prior scan)
-    db_path = tmp_env["data_dir"] / "photos.db"
-    conn = sqlite3.connect(str(db_path))
-    conn.execute(
-        "CREATE TABLE photos (id TEXT PRIMARY KEY, storage_path TEXT NOT NULL UNIQUE, "
-        "original_filename TEXT NOT NULL)"
-    )
-    conn.execute(
-        "INSERT INTO photos (id, storage_path, original_filename) VALUES (?, ?, ?)",
-        (photo_id, "/old/path/img.png", "img.png"),
-    )
-    conn.commit()
-    conn.close()
+    init_schema()
+    with get_session() as s:
+        s.add(Photo(
+            id=photo_id,
+            storage_path="/old/path/img.png",
+            original_filename="img.png",
+        ))
 
     from app.indexer.merge import run_merge
     result = run_merge([takeout])

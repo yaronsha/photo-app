@@ -6,9 +6,10 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
+from sqlalchemy import select
 
 from ..config import get_settings
-from ..db import get_conn, init_schema, row_to_dict
+from ..db import Person, Photo, PhotoPerson, get_session, init_schema
 from ..search.query import search as do_search
 
 
@@ -60,9 +61,7 @@ _ensure_dist()
 
 @app.on_event("startup")
 def startup():
-    conn = get_conn()
-    init_schema(conn)
-    conn.close()
+    init_schema()
     get_settings().thumbs_path.mkdir(parents=True, exist_ok=True)
 
 
@@ -136,44 +135,34 @@ def thumb(photo_id: str):
 
 @app.get("/photo/{photo_id}/info")
 def photo_info(photo_id: str):
-    conn = get_conn()
-    row = conn.execute(
-        "SELECT * FROM photos WHERE id = ?", (photo_id,)
-    ).fetchone()
-    if row is None:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Photo not found")
+    with get_session() as session:
+        photo = session.get(Photo, photo_id)
+        if photo is None:
+            raise HTTPException(status_code=404, detail="Photo not found")
 
-    data = row_to_dict(row)
+        people_rows = session.execute(
+            select(Person.id, Person.name)
+            .join(PhotoPerson, PhotoPerson.person_id == Person.id)
+            .where(PhotoPerson.photo_id == photo_id)
+        ).all()
 
-    pp_rows = conn.execute(
-        """
-        SELECT p.id, p.name
-        FROM photo_people pp
-        JOIN people p ON p.id = pp.person_id
-        WHERE pp.photo_id = ?
-        """,
-        (photo_id,),
-    ).fetchall()
-    conn.close()
-
-    return {
-        "id": photo_id,
-        "caption": data.get("caption"),
-        "taken_at": data.get("taken_at"),
-        "location_name": data.get("location_name"),
-        "description": data.get("description"),
-        "tags": data.get("tags") or [],
-        "people": [{"id": r["id"], "name": r["name"]} for r in pp_rows],
-        "activities": data.get("activities") or [],
-        "content_type": data.get("content_type"),
-        "subject_type": data.get("subject_type"),
-        "primary_focus": data.get("primary_focus"),
-        "indoor_outdoor": data.get("indoor_outdoor"),
-        "setting_type": data.get("setting_type"),
-        "sharpness": data.get("sharpness"),
-        "face_clarity_score": data.get("face_clarity_score"),
-    }
+        return {
+            "id": photo_id,
+            "caption": photo.caption,
+            "taken_at": photo.taken_at,
+            "location_name": photo.location_name,
+            "description": photo.description,
+            "tags": photo.tags or [],
+            "people": [{"id": pid, "name": pname} for pid, pname in people_rows],
+            "activities": photo.activities or [],
+            "content_type": photo.content_type,
+            "subject_type": photo.subject_type,
+            "primary_focus": photo.primary_focus,
+            "indoor_outdoor": photo.indoor_outdoor,
+            "setting_type": photo.setting_type,
+            "sharpness": photo.sharpness,
+            "face_clarity_score": photo.face_clarity_score,
+        }
 
 
 @app.get("/photo/{photo_id}")
@@ -185,17 +174,15 @@ def photo(photo_id: str):
 
 
 def _resolve_photo_path(photo_id: str) -> Path:
-    conn = get_conn()
-    row = conn.execute(
-        "SELECT storage_path FROM photos WHERE id = ?", (photo_id,)
-    ).fetchone()
-    conn.close()
+    with get_session() as session:
+        photo = session.get(Photo, photo_id)
+        storage_path_str = photo.storage_path if photo else None
 
-    if row is None:
+    if storage_path_str is None:
         raise HTTPException(status_code=404, detail="Photo not found")
 
     settings = get_settings()
-    storage = Path(row["storage_path"])
+    storage = Path(storage_path_str)
     real_storage = Path(os.path.realpath(storage))
     real_photos = Path(os.path.realpath(settings.photos_dir))
 

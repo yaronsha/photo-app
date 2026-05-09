@@ -10,10 +10,12 @@ Reads data/sidecars/{photo_id}.json and populates:
 """
 import json
 from datetime import datetime, timezone
-from pathlib import Path
+
+from sqlalchemy import select, update
 
 from ..config import get_settings
-from ..db import get_conn, init_schema
+from ..db import Photo, get_session, init_schema
+from ..db.upsert import upsert_person, upsert_photo_person
 
 
 def _ts_to_iso(timestamp_str: str) -> str | None:
@@ -25,106 +27,94 @@ def _ts_to_iso(timestamp_str: str) -> str | None:
 
 def run_google_metadata(reindex: bool = False) -> int:
     settings = get_settings()
-    conn = get_conn()
-    init_schema(conn)
+    init_schema()
 
     sidecars_dir = settings.data_dir / "sidecars"
     if not sidecars_dir.exists():
         print("google_metadata: no sidecars dir found — run merge_takeouts.py first")
         return 0
 
-    # Seed people table from config (idempotent)
-    for person in settings.people:
-        conn.execute(
-            "INSERT INTO people (id, name, family_id) VALUES (?, ?, ?)"
-            " ON CONFLICT(id) DO UPDATE SET name = excluded.name",
-            (person.id, person.name, person.family_id),
-        )
-    conn.commit()
-
     aliases: dict[str, str] = {
         k.lower(): v
         for k, v in getattr(settings, "google_name_aliases", {}).items()
     }
 
-    rows = conn.execute(
-        "SELECT id, taken_at, lat, lng FROM photos"
-        + ("" if reindex else " WHERE google_metadata_indexed_at IS NULL")
-    ).fetchall()
-
-    enriched = skipped = no_sidecar = 0
-    now = datetime.now(timezone.utc).isoformat()
-
-    for row in rows:
-        photo_id = row["id"]
-        sidecar_path = sidecars_dir / f"{photo_id}.json"
-
-        if not sidecar_path.exists():
-            no_sidecar += 1
-            conn.execute(
-                "UPDATE photos SET google_metadata_indexed_at = ? WHERE id = ?",
-                (now, photo_id),
+    with get_session() as session:
+        # Seed people table from config (idempotent)
+        for person in settings.people:
+            upsert_person(
+                session, id=person.id, name=person.name, family_id=person.family_id
             )
-            continue
 
-        try:
-            data = json.loads(sidecar_path.read_text(encoding="utf-8"))
-        except Exception:
-            skipped += 1
-            continue
+        stmt = select(Photo.id, Photo.taken_at, Photo.lat, Photo.lng)
+        if not reindex:
+            stmt = stmt.where(Photo.google_metadata_indexed_at.is_(None))
+        rows = session.execute(stmt).all()
 
-        # taken_at: sidecar wins when EXIF is absent
-        taken_at = row["taken_at"]
-        ts = data.get("photoTakenTime", {}).get("timestamp")
-        if ts and not taken_at:
-            taken_at = _ts_to_iso(ts)
+        enriched = skipped = no_sidecar = 0
+        now = datetime.now(timezone.utc).isoformat()
 
-        # lat/lng: sidecar supplements EXIF
-        lat = row["lat"]
-        lng = row["lng"]
-        geo = data.get("geoData", {})
-        if geo.get("latitude") and not lat:
-            lat = geo["latitude"]
-        if geo.get("longitude") and not lng:
-            lng = geo["longitude"]
+        for photo_id, taken_at, lat, lng in rows:
+            sidecar_path = sidecars_dir / f"{photo_id}.json"
 
-        description = data.get("description") or None
-        google_people_raw = data.get("people")
-        google_people_json = json.dumps(google_people_raw, ensure_ascii=False) if google_people_raw else None
-
-        conn.execute(
-            """
-            UPDATE photos SET
-                taken_at = ?,
-                lat = ?,
-                lng = ?,
-                description = ?,
-                google_people = ?,
-                google_metadata_indexed_at = ?
-            WHERE id = ?
-            """,
-            (taken_at, lat, lng, description, google_people_json, now, photo_id),
-        )
-
-        # Populate photo_people from Google face tags
-        if google_people_raw and aliases:
-            for entry in google_people_raw:
-                raw_name = (entry.get("name") or "").strip().lower()
-                person_id = aliases.get(raw_name)
-                if not person_id:
-                    continue
-                conn.execute(
-                    """
-                    INSERT INTO photo_people (photo_id, person_id, face_bbox, confidence)
-                    VALUES (?, ?, NULL, NULL)
-                    ON CONFLICT(photo_id, person_id) DO NOTHING
-                    """,
-                    (photo_id, person_id),
+            if not sidecar_path.exists():
+                no_sidecar += 1
+                session.execute(
+                    update(Photo)
+                    .where(Photo.id == photo_id)
+                    .values(google_metadata_indexed_at=now)
                 )
+                continue
 
-        enriched += 1
+            try:
+                data = json.loads(sidecar_path.read_text(encoding="utf-8"))
+            except Exception:
+                skipped += 1
+                continue
 
-    conn.commit()
-    conn.close()
+            # taken_at: sidecar wins when EXIF is absent
+            new_taken_at = taken_at
+            ts = data.get("photoTakenTime", {}).get("timestamp")
+            if ts and not new_taken_at:
+                new_taken_at = _ts_to_iso(ts)
+
+            # lat/lng: sidecar supplements EXIF
+            new_lat = lat
+            new_lng = lng
+            geo = data.get("geoData", {})
+            if geo.get("latitude") and not new_lat:
+                new_lat = geo["latitude"]
+            if geo.get("longitude") and not new_lng:
+                new_lng = geo["longitude"]
+
+            description = data.get("description") or None
+            google_people_raw = data.get("people")
+
+            session.execute(
+                update(Photo)
+                .where(Photo.id == photo_id)
+                .values(
+                    taken_at=new_taken_at,
+                    lat=new_lat,
+                    lng=new_lng,
+                    description=description,
+                    google_people=google_people_raw if google_people_raw else None,
+                    google_metadata_indexed_at=now,
+                )
+            )
+
+            # Populate photo_people from Google face tags
+            if google_people_raw and aliases:
+                for entry in google_people_raw:
+                    raw_name = (entry.get("name") or "").strip().lower()
+                    person_id = aliases.get(raw_name)
+                    if not person_id:
+                        continue
+                    upsert_photo_person(
+                        session, photo_id=photo_id, person_id=person_id
+                    )
+
+            enriched += 1
+
     print(f"google_metadata: {enriched} enriched, {no_sidecar} no sidecar, {skipped} errors")
     return enriched

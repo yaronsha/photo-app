@@ -1,66 +1,31 @@
-import json
-import sqlite3
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
+from sqlalchemy import update
+
+from app.db import Photo, get_session, init_schema
 
 
-@pytest.fixture()
-def tmp_env(tmp_path, monkeypatch):
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    photos_dir = tmp_path / "photos"
-    photos_dir.mkdir()
-
-    cfg = {
-        "family_name": "Test",
-        "data_dir": str(data_dir),
-        "photos_dir": str(photos_dir),
-        "caption_model": "gpt-4.1-nano",
-        "embed_model": "text-embedding-3-small",
-        "face_tolerance": 0.5,
-        "people": [],
-    }
-    cfg_path = tmp_path / "config.json"
-    cfg_path.write_text(json.dumps(cfg))
-
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-
-    import app.config as config_mod
-    monkeypatch.setattr(config_mod, "_CONFIG_PATH", cfg_path)
-    monkeypatch.setattr(config_mod, "_settings", None)
-
-    return {"data_dir": data_dir, "photos_dir": photos_dir}
-
-
-def _seed(db_path: Path, rows: list[tuple]):
-    conn = sqlite3.connect(str(db_path))
-    from app.db import init_schema
-    init_schema(conn)
-    for pid, caption, activities, content_type, *rest in rows:
-        csv = rest[0] if rest else 1
-        conn.execute(
-            "INSERT INTO photos (id, storage_path, original_filename, caption, "
-            "activities, content_type, taken_at, scan_indexed_at, caption_indexed_at, "
-            "caption_schema_version) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                pid, f"/tmp/{pid}.jpg", f"{pid}.jpg",
-                caption, json.dumps(activities), content_type,
-                "2022-01-01T00:00:00+00:00",
-                "2022-01-01T00:00:00+00:00",
-                "2022-01-01T00:00:00+00:00",
-                csv,
-            ),
-        )
-    conn.commit()
-    conn.close()
+def _seed(rows: list[tuple]):
+    init_schema()
+    with get_session() as s:
+        for pid, caption, activities, content_type, *rest in rows:
+            csv = rest[0] if rest else 1
+            s.add(Photo(
+                id=pid,
+                storage_path=f"/tmp/{pid}.jpg",
+                original_filename=f"{pid}.jpg",
+                caption=caption,
+                activities=activities,
+                content_type=content_type,
+                taken_at="2022-01-01T00:00:00+00:00",
+                scan_indexed_at="2022-01-01T00:00:00+00:00",
+                caption_indexed_at="2022-01-01T00:00:00+00:00",
+                caption_schema_version=csv,
+            ))
 
 
 def test_embed_skips_documents(tmp_env):
-    db_path = tmp_env["data_dir"] / "photos.db"
-    _seed(db_path, [
+    _seed([
         ("p_photo", "a beach", ["swimming"], "photo"),
         ("p_doc", "a receipt", [], "document"),
         ("p_other", "a meme", [], "other"),
@@ -89,8 +54,7 @@ def test_embed_skips_documents(tmp_env):
 
 
 def test_embed_text_includes_activities(tmp_env):
-    db_path = tmp_env["data_dir"] / "photos.db"
-    _seed(db_path, [
+    _seed([
         ("p1", "kids on beach", ["swimming", "playing"], "photo"),
     ])
 
@@ -119,27 +83,20 @@ def test_embed_text_includes_activities(tmp_env):
 
 def test_embed_text_omits_tags(tmp_env):
     """Tags column should NOT be part of embed text — only caption + activities."""
-    db_path = tmp_env["data_dir"] / "photos.db"
-    conn = sqlite3.connect(str(db_path))
-    from app.db import init_schema
-    init_schema(conn)
-    conn.execute(
-        "INSERT INTO photos (id, storage_path, original_filename, caption, tags, "
-        "activities, content_type, taken_at, scan_indexed_at, caption_indexed_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            "p1", "/tmp/p1.jpg", "p1.jpg",
-            "two children running",
-            json.dumps(["zebrazebra", "yellowbananatag", "purpleorchid"]),
-            json.dumps([]),
-            "photo",
-            "2022-01-01T00:00:00+00:00",
-            "2022-01-01T00:00:00+00:00",
-            "2022-01-01T00:00:00+00:00",
-        ),
-    )
-    conn.commit()
-    conn.close()
+    init_schema()
+    with get_session() as s:
+        s.add(Photo(
+            id="p1",
+            storage_path="/tmp/p1.jpg",
+            original_filename="p1.jpg",
+            caption="two children running",
+            tags=["zebrazebra", "yellowbananatag", "purpleorchid"],
+            activities=[],
+            content_type="photo",
+            taken_at="2022-01-01T00:00:00+00:00",
+            scan_indexed_at="2022-01-01T00:00:00+00:00",
+            caption_indexed_at="2022-01-01T00:00:00+00:00",
+        ))
 
     mock_provider = MagicMock()
     mock_provider.embed.return_value = [0.1] * 1536
@@ -163,13 +120,10 @@ def test_embed_text_omits_tags(tmp_env):
 
 
 def test_embed_reruns_when_caption_version_advances(tmp_env):
-    db_path = tmp_env["data_dir"] / "photos.db"
-    _seed(db_path, [("p1", "a beach", ["swimming"], "photo", 2)])
+    _seed([("p1", "a beach", ["swimming"], "photo", 2)])
 
-    conn = sqlite3.connect(str(db_path))
-    conn.execute("UPDATE photos SET embed_schema_version=1 WHERE id='p1'")
-    conn.commit()
-    conn.close()
+    with get_session() as s:
+        s.execute(update(Photo).where(Photo.id == "p1").values(embed_schema_version=1))
 
     mock_provider = MagicMock()
     mock_provider.embed.return_value = [0.1] * 1536
@@ -190,13 +144,10 @@ def test_embed_reruns_when_caption_version_advances(tmp_env):
 
 
 def test_embed_skips_when_already_current(tmp_env):
-    db_path = tmp_env["data_dir"] / "photos.db"
-    _seed(db_path, [("p1", "a beach", ["swimming"], "photo", 2)])
+    _seed([("p1", "a beach", ["swimming"], "photo", 2)])
 
-    conn = sqlite3.connect(str(db_path))
-    conn.execute("UPDATE photos SET embed_schema_version=2 WHERE id='p1'")
-    conn.commit()
-    conn.close()
+    with get_session() as s:
+        s.execute(update(Photo).where(Photo.id == "p1").values(embed_schema_version=2))
 
     mock_provider = MagicMock()
     mock_provider.embed.return_value = [0.1] * 1536

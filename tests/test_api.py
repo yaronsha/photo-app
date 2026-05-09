@@ -1,8 +1,5 @@
 """Tests for app/api/main.py — FastAPI endpoints."""
-import json
-import sqlite3
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,18 +14,20 @@ def _seed_photo(tmp_env, photo_id: str = "abc123def456abc1", filename: str = "te
     photo_path = tmp_env["photos_dir"] / filename
     make_png(photo_path)
 
-    from app.db import get_conn, init_schema
-    conn = get_conn()
-    init_schema(conn)
-    conn.execute(
-        "INSERT INTO photos (id, storage_path, original_filename, caption, "
-        "taken_at, content_type, scan_indexed_at, caption_indexed_at, vector_indexed_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (photo_id, str(photo_path), filename, "a test photo",
-         taken_at, content_type, taken_at, taken_at, taken_at),
-    )
-    conn.commit()
-    conn.close()
+    from app.db import Photo, get_session, init_schema
+    init_schema()
+    with get_session() as s:
+        s.add(Photo(
+            id=photo_id,
+            storage_path=str(photo_path),
+            original_filename=filename,
+            caption="a test photo",
+            taken_at=taken_at,
+            content_type=content_type,
+            scan_indexed_at=taken_at,
+            caption_indexed_at=taken_at,
+            vector_indexed_at=taken_at,
+        ))
     return photo_path
 
 
@@ -98,11 +97,8 @@ def test_photo_info_endpoint(tmp_env, client):
 
 
 def test_photo_info_404_for_unknown_id(tmp_env, client):
-    # Initialize schema (so DB exists)
-    from app.db import get_conn, init_schema
-    conn = get_conn()
-    init_schema(conn)
-    conn.close()
+    from app.db import init_schema
+    init_schema()
 
     resp = client.get("/photo/nonexistent/info")
     assert resp.status_code == 404
@@ -114,26 +110,23 @@ def test_photo_path_traversal_blocked(tmp_env, client):
     outside = tmp_env["data_dir"].parent / "outside.png"
     make_png(outside)
 
-    from app.db import get_conn, init_schema
-    conn = get_conn()
-    init_schema(conn)
-    conn.execute(
-        "INSERT INTO photos (id, storage_path, original_filename, scan_indexed_at) "
-        "VALUES (?, ?, ?, ?)",
-        ("evilid000000abcd", str(outside), "outside.png", "2020-01-01T00:00:00+00:00"),
-    )
-    conn.commit()
-    conn.close()
+    from app.db import Photo, get_session, init_schema
+    init_schema()
+    with get_session() as s:
+        s.add(Photo(
+            id="evilid000000abcd",
+            storage_path=str(outside),
+            original_filename="outside.png",
+            scan_indexed_at="2020-01-01T00:00:00+00:00",
+        ))
 
     resp = client.get("/photo/evilid000000abcd")
     assert resp.status_code == 403
 
 
 def test_photo_404_when_row_missing(client):
-    from app.db import get_conn, init_schema
-    conn = get_conn()
-    init_schema(conn)
-    conn.close()
+    from app.db import init_schema
+    init_schema()
 
     resp = client.get("/photo/nonexistent")
     assert resp.status_code == 404

@@ -1,9 +1,10 @@
 import asyncio
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..db import get_conn
+from sqlalchemy import or_, select, update
+
+from ..db import Photo, get_session
 from .providers import get_caption_provider
 
 DEFAULT_LIMIT = 50
@@ -16,42 +17,38 @@ def run_caption(limit: int = DEFAULT_LIMIT, reindex: bool = False) -> int:
 
 
 async def _run_caption_async(limit: int, reindex: bool) -> int:
-    conn = get_conn()
     provider = get_caption_provider()
 
-    if reindex:
-        rows = conn.execute(
-            "SELECT id, storage_path, lat, lng, location_name FROM photos "
-            "WHERE scan_indexed_at IS NOT NULL LIMIT ?",
-            (limit,),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT id, storage_path, lat, lng, location_name FROM photos "
-            "WHERE scan_indexed_at IS NOT NULL "
-            "AND (caption_indexed_at IS NULL "
-            "     OR caption_schema_version IS NULL "
-            "     OR caption_schema_version < ?) "
-            "LIMIT ?",
-            (CAPTION_SCHEMA_VERSION, limit),
-        ).fetchall()
+    with get_session() as session:
+        stmt = select(
+            Photo.id, Photo.storage_path, Photo.lat, Photo.lng, Photo.location_name
+        ).where(Photo.scan_indexed_at.is_not(None))
+        if not reindex:
+            stmt = stmt.where(
+                or_(
+                    Photo.caption_indexed_at.is_(None),
+                    Photo.caption_schema_version.is_(None),
+                    Photo.caption_schema_version < CAPTION_SCHEMA_VERSION,
+                )
+            )
+        stmt = stmt.limit(limit)
+        rows = session.execute(stmt).all()
 
     print(f"caption: processing {len(rows)} photos (concurrency={CONCURRENCY})")
     semaphore = asyncio.Semaphore(CONCURRENCY)
-    db_lock = asyncio.Lock()
     captioned = 0
     skipped = 0
 
     async def process(row):
         nonlocal captioned, skipped
-        path = Path(row["storage_path"])
+        path = Path(row.storage_path)
         if not path.exists():
             print(f"  missing file: {path} — skip")
             skipped += 1
             return
 
-        location_hint = row["location_name"] or (
-            f"{row['lat']:.4f},{row['lng']:.4f}" if row["lat"] and row["lng"] else None
+        location_hint = row.location_name or (
+            f"{row.lat:.4f},{row.lng:.4f}" if row.lat and row.lng else None
         )
 
         async with semaphore:
@@ -63,38 +60,30 @@ async def _run_caption_async(limit: int, reindex: bool) -> int:
                 return
 
         now = datetime.now(timezone.utc).isoformat()
-        async with db_lock:
-            conn.execute(
-                """
-                UPDATE photos SET
-                  caption=?, tags=?, activities=?,
-                  content_type=?, subject_type=?, primary_focus=?,
-                  indoor_outdoor=?, setting_type=?, sharpness=?,
-                  face_clarity_score=?,
-                  caption_indexed_at=?, caption_schema_version=?
-                WHERE id=?
-                """,
-                (
-                    result["caption"],
-                    json.dumps(result["tags"]),
-                    json.dumps(result["activities"]),
-                    result["content_type"],
-                    result["subject_type"],
-                    result["primary_focus"],
-                    result["indoor_outdoor"],
-                    result["setting_type"],
-                    result["sharpness"],
-                    result["face_clarity_score"],
-                    now,
-                    CAPTION_SCHEMA_VERSION,
-                    row["id"],
-                ),
+        # Per-task session: each writer has its own short transaction.
+        # Concurrent writers serialize via SQLite's busy timeout (engine timeout=30).
+        with get_session() as task_session:
+            task_session.execute(
+                update(Photo)
+                .where(Photo.id == row.id)
+                .values(
+                    caption=result["caption"],
+                    tags=result["tags"],
+                    activities=result["activities"],
+                    content_type=result["content_type"],
+                    subject_type=result["subject_type"],
+                    primary_focus=result["primary_focus"],
+                    indoor_outdoor=result["indoor_outdoor"],
+                    setting_type=result["setting_type"],
+                    sharpness=result["sharpness"],
+                    face_clarity_score=result["face_clarity_score"],
+                    caption_indexed_at=now,
+                    caption_schema_version=CAPTION_SCHEMA_VERSION,
+                )
             )
-            conn.commit()
         captioned += 1
 
     await asyncio.gather(*[process(row) for row in rows])
 
-    conn.close()
     print(f"caption: {captioned} captioned, {skipped} skipped")
     return captioned
