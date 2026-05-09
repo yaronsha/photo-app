@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { usePeople, useSearchInfinite, flattenPages } from '../../api/queries';
 import { useSearchParamString, useSearchParamArray } from '../../hooks/useSearchParamsState';
@@ -20,8 +20,8 @@ const SUGGESTIONS = [
 ];
 
 export function GalleryPage() {
-  const [inputQ, setInputQ] = useState('');
   const [q, setQ] = useSearchParamString('q');
+  const [inputQ, setInputQ] = useState(() => q);
   const [dateFrom] = useSearchParamString('date_from');
   const [dateTo] = useSearchParamString('date_to');
   const [, setSearchParams] = useSearchParams();
@@ -30,13 +30,6 @@ export function GalleryPage() {
 
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [activePhotoIndex, setActivePhotoIndex] = useState<number | null>(null);
-
-  // Sync input with URL param on initial load
-  const [initialized, setInitialized] = useState(false);
-  if (!initialized) {
-    setInputQ(q);
-    setInitialized(true);
-  }
 
   const { data: people } = usePeople();
 
@@ -57,6 +50,14 @@ export function GalleryPage() {
   } = useSearchInfinite(filters);
 
   const allPhotos = flattenPages(data?.pages);
+
+  const allPhotosRef = useRef(allPhotos);
+  allPhotosRef.current = allPhotos;
+  const hasNextPageRef = useRef(hasNextPage);
+  hasNextPageRef.current = hasNextPage;
+  const fetchNextPageRef = useRef(fetchNextPage);
+  fetchNextPageRef.current = fetchNextPage;
+  const pendingAdvanceRef = useRef(false);
 
   function handleSearch() {
     const trimmed = inputQ.trim();
@@ -104,10 +105,27 @@ export function GalleryPage() {
   }, []);
 
   const goToNext = useCallback(() => {
-    setActivePhotoIndex(prev =>
-      prev != null && prev < allPhotos.length - 1 ? prev + 1 : prev,
-    );
-  }, [allPhotos.length]);
+    setActivePhotoIndex(prev => {
+      if (prev == null) return prev;
+      if (prev < allPhotosRef.current.length - 1) return prev + 1;
+      if (hasNextPageRef.current && !pendingAdvanceRef.current) {
+        pendingAdvanceRef.current = true;
+        fetchNextPageRef.current();
+      }
+      return prev;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (
+      pendingAdvanceRef.current &&
+      activePhotoIndex != null &&
+      allPhotos.length > activePhotoIndex + 1
+    ) {
+      pendingAdvanceRef.current = false;
+      setActivePhotoIndex(prev => (prev != null ? prev + 1 : prev));
+    }
+  }, [allPhotos.length, activePhotoIndex]);
 
   const hasFilters = !!(q || dateFrom || dateTo || personIds.length);
 
@@ -181,7 +199,8 @@ export function GalleryPage() {
           onPrev={goToPrev}
           onNext={goToNext}
           hasPrev={activePhotoIndex > 0}
-          hasNext={activePhotoIndex < allPhotos.length - 1}
+          hasNext={activePhotoIndex < allPhotos.length - 1 || !!hasNextPage}
+          isLoadingNext={isFetchingNextPage && activePhotoIndex === allPhotos.length - 1}
         />
       )}
     </>

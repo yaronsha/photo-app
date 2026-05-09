@@ -14,6 +14,7 @@ interface PhotoDetailModalProps {
   onNext: () => void;
   hasPrev: boolean;
   hasNext: boolean;
+  isLoadingNext?: boolean;
 }
 
 export function PhotoDetailModal({
@@ -25,6 +26,7 @@ export function PhotoDetailModal({
   onNext,
   hasPrev,
   hasNext,
+  isLoadingNext = false,
 }: PhotoDetailModalProps) {
   const [imgLoaded, setImgLoaded] = useState(false);
 
@@ -127,11 +129,18 @@ export function PhotoDetailModal({
           {/* Next button */}
           {hasNext && (
             <button
-              onClick={handleNext}
-              className="absolute right-md z-10 p-md rounded-full bg-black/20 hover:bg-black/50 text-white transition-all backdrop-blur-md"
-              aria-label="Next photo"
+              onClick={isLoadingNext ? undefined : handleNext}
+              disabled={isLoadingNext}
+              className={`absolute right-md z-10 p-md rounded-full text-white transition-all backdrop-blur-md ${
+                isLoadingNext ? 'bg-black/10 cursor-wait' : 'bg-black/20 hover:bg-black/50'
+              }`}
+              aria-label={isLoadingNext ? 'Loading more photos' : 'Next photo'}
             >
-              <span className="material-symbols-outlined text-[32px]">chevron_right</span>
+              {isLoadingNext ? (
+                <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <span className="material-symbols-outlined text-[32px]">chevron_right</span>
+              )}
             </button>
           )}
         </div>

@@ -33,10 +33,8 @@ export function PhotoLabels({
   faceClarityScore,
   contentType,
 }: PhotoLabelsProps) {
-  const standardLabels: string[] = [
-    ...(tags ?? []),
-    ...(activities ?? []),
-  ];
+  const tagList = tags ?? [];
+  const activityList = activities ?? [];
 
   const analysisChips: { label: string; value: string; colorClass: string }[] = [];
 
@@ -71,18 +69,26 @@ export function PhotoLabels({
     analysisChips.push({ label: 'type', value: contentType, colorClass: 'bg-amber-100 text-amber-800' });
   }
 
-  if (!standardLabels.length && !analysisChips.length) return null;
+  if (!tagList.length && !activityList.length && !analysisChips.length) return null;
 
   return (
     <div className="space-y-sm">
       <h4 className="text-label-md text-on-surface-variant uppercase tracking-wider">Labels</h4>
       <div className="flex flex-wrap gap-xs">
-        {standardLabels.map(l => (
+        {tagList.map(t => (
           <span
-            key={l}
+            key={`tag-${t}`}
             className="px-sm py-xs bg-secondary-container text-on-secondary-container text-label-md font-medium rounded-full"
           >
-            {l}
+            {t}
+          </span>
+        ))}
+        {activityList.map(a => (
+          <span
+            key={`act-${a}`}
+            className="px-sm py-xs bg-secondary-container text-on-secondary-container text-label-md font-medium rounded-full"
+          >
+            {a}
           </span>
         ))}
         {analysisChips.map(chip => (
