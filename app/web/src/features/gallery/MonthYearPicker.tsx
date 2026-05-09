@@ -60,6 +60,10 @@ export function MonthYearPicker({ label, value, onChange, min, max }: MonthYearP
     if (value) {
       setPivotYear(value.year);
       setPivotDecade(decadeStart(value.year));
+    } else {
+      setView('month');
+      setPivotYear(currentYear);
+      setPivotDecade(decadeStart(currentYear));
     }
   }, [value]);
 
