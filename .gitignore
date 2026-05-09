@@ -9,6 +9,8 @@ __pycache__/
 *.pyo
 .pytest_cache/
 dist/
+node_modules/
+*.tsbuildinfo
 *.egg-info/
 photos.bak.*.db
 .claude/settings.local.json

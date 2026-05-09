@@ -1,10 +1,16 @@
 import json
+import os
 import struct
 import zlib
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+# Backend tests don't build the frontend; let app/api/main.py write a stub
+# index.html instead of raising at import. Prod has this var unset and so
+# fails loud if dist/ is missing.
+os.environ.setdefault("FAMILY_PHOTOS_ALLOW_MISSING_FRONTEND", "1")
 
 
 _png_counter = 0

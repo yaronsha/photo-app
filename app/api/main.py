@@ -24,6 +24,38 @@ def _validate_iso_date(value: str | None, field: str) -> str | None:
 app = FastAPI(title="Family Photos")
 
 _WEB_DIR = Path(__file__).parent.parent / "web"
+_DIST_DIR = _WEB_DIR / "dist"
+_FRONTEND_NOT_BUILT_HTML = (
+    "<!doctype html><meta charset=utf-8><title>Frontend not built</title>"
+    "<body style='font-family:sans-serif;padding:2rem'>"
+    "<h1>Frontend not built</h1>"
+    "<p>Run <code>cd app/web && npm install && npm run build</code> "
+    "then reload.</p></body>"
+)
+
+
+def _ensure_dist() -> None:
+    """Ensure app/web/dist/index.html exists.
+
+    Prod fails loud: if the frontend is not built, raise at import so the
+    deploy never silently serves a placeholder. Tests / local dev opt out
+    by setting FAMILY_PHOTOS_ALLOW_MISSING_FRONTEND=1, which writes a
+    visible "frontend not built" stub instead.
+    """
+    index = _DIST_DIR / "index.html"
+    if index.exists():
+        return
+    if os.environ.get("FAMILY_PHOTOS_ALLOW_MISSING_FRONTEND") != "1":
+        raise RuntimeError(
+            f"Frontend not built: {index} missing. "
+            "Run `cd app/web && npm install && npm run build`, "
+            "or set FAMILY_PHOTOS_ALLOW_MISSING_FRONTEND=1 for dev/test."
+        )
+    _DIST_DIR.mkdir(parents=True, exist_ok=True)
+    index.write_text(_FRONTEND_NOT_BUILT_HTML, encoding="utf-8")
+
+
+_ensure_dist()
 
 
 @app.on_event("startup")
@@ -185,9 +217,14 @@ def _generate_thumb(src: Path, dest: Path) -> None:
     img.save(str(dest), "JPEG", quality=85)
 
 
-app.mount("/static", StaticFiles(directory=str(_WEB_DIR)), name="static")
+app.mount("/static", StaticFiles(directory=str(_DIST_DIR)), name="static")
 
 
 @app.get("/")
 def index():
-    return FileResponse(str(_WEB_DIR / "index.html"))
+    return FileResponse(str(_DIST_DIR / "index.html"))
+
+
+@app.get("/games")
+def games_route():
+    return FileResponse(str(_DIST_DIR / "index.html"))
