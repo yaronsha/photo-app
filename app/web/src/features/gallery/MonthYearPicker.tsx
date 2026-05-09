@@ -39,6 +39,7 @@ interface MonthYearPickerProps {
   onChange: (value: MonthYear | null) => void;
   min?: MonthYear | null;
   max?: MonthYear | null;
+  'data-testid'?: string;
 }
 
 type View = 'month' | 'year';
@@ -51,7 +52,7 @@ function decadeStart(y: number) {
   return Math.floor(y / 10) * 10;
 }
 
-export function MonthYearPicker({ label, value, onChange, min, max }: MonthYearPickerProps) {
+export function MonthYearPicker({ label, value, onChange, min, max, 'data-testid': testId }: MonthYearPickerProps) {
   const [view, setView] = useState<View>('month');
   const [pivotYear, setPivotYear] = useState<number>(value?.year ?? currentYear);
   const [pivotDecade, setPivotDecade] = useState<number>(decadeStart(value?.year ?? currentYear));
@@ -107,7 +108,7 @@ export function MonthYearPicker({ label, value, onChange, min, max }: MonthYearP
   const canNextDecade = pivotDecade < maxDecade;
 
   return (
-    <div className="flex flex-col gap-sm w-[220px]">
+    <div className="flex flex-col gap-sm w-[220px]" data-testid={testId}>
       <div className="flex items-center justify-between text-label-md text-on-surface-variant uppercase tracking-wider px-xs">
         <span>{label}</span>
         {value && (

@@ -76,8 +76,8 @@ export function DateRangePopover({
       aria-label="Date range picker"
     >
       <div className="flex gap-lg">
-        <MonthYearPicker label="From" value={fromValue} onChange={handleFromChange} max={toValue} />
-        <MonthYearPicker label="To" value={toValue} onChange={handleToChange} min={fromValue} />
+        <MonthYearPicker label="From" value={fromValue} onChange={handleFromChange} max={toValue} data-testid="from-picker" />
+        <MonthYearPicker label="To" value={toValue} onChange={handleToChange} min={fromValue} data-testid="to-picker" />
       </div>
       <div className="flex justify-between items-center border-t border-outline-variant pt-sm">
         <button

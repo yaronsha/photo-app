@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { usePeople, useSearchInfinite, flattenPages } from '../../api/queries';
 import { useSearchParamString, useSearchParamArray } from '../../hooks/useSearchParamsState';
 import { TopBar } from '../../layout/TopBar';
@@ -21,8 +22,9 @@ const SUGGESTIONS = [
 export function GalleryPage() {
   const [inputQ, setInputQ] = useState('');
   const [q, setQ] = useSearchParamString('q');
-  const [dateFrom, setDateFrom] = useSearchParamString('date_from');
-  const [dateTo, setDateTo] = useSearchParamString('date_to');
+  const [dateFrom] = useSearchParamString('date_from');
+  const [dateTo] = useSearchParamString('date_to');
+  const [, setSearchParams] = useSearchParams();
   const [personIds, setPersonIds] = useSearchParamArray('person_id');
   const [peopleMode, setPeopleMode] = useSearchParamString('people_mode', 'any');
 
@@ -79,8 +81,14 @@ export function GalleryPage() {
   }
 
   function handleDateApply(from: string, to: string) {
-    setDateFrom(from);
-    setDateTo(to);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (from) next.set('date_from', from);
+      else next.delete('date_from');
+      if (to) next.set('date_to', to);
+      else next.delete('date_to');
+      return next;
+    }, { replace: true });
   }
 
   const openPhoto = useCallback((index: number) => {
