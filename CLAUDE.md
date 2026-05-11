@@ -1,6 +1,6 @@
 # Agent Instructions — Family Photos AI App
 
-Read [README.md](README.md) and [FACE_RECOGNITION.md](FACE_RECOGNITION.md) before any task.
+Read [README.md](README.md)
 Architecture and pipeline detail live in [docs/](docs/) — read the relevant doc when working in that area.
 
 ## Doc Map
