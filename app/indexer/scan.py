@@ -1,15 +1,14 @@
 import hashlib
-import json
-import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
 import exifread
 import pillow_heif
-from PIL import Image
+from sqlalchemy import delete, select
 
 from ..config import get_settings
-from ..db import get_conn, init_schema
+from ..db import Photo, get_session, init_schema
+from ..db.upsert import upsert_photo_scan
 
 pillow_heif.register_heif_opener()
 
@@ -71,8 +70,7 @@ def run_scan(
     prehashed: list[tuple[str, Path]] | None = None,
 ) -> int:
     settings = get_settings()
-    conn = get_conn()
-    init_schema(conn)
+    init_schema()
 
     photos_dir = settings.photos_dir
     if not photos_dir.exists():
@@ -87,51 +85,38 @@ def run_scan(
     else:
         items = ((_sha256_id(p), p) for p in _walk_photos(photos_dir))
 
-    for photo_id, path in items:
-        existing = conn.execute(
-            "SELECT scan_indexed_at FROM photos WHERE id = ?", (photo_id,)
-        ).fetchone()
+    with get_session() as session:
+        for photo_id, path in items:
+            existing = session.execute(
+                select(Photo.scan_indexed_at).where(Photo.id == photo_id)
+            ).first()
 
-        if existing and existing["scan_indexed_at"] and not reindex:
-            skipped += 1
-            continue
+            if existing and existing[0] and not reindex:
+                skipped += 1
+                continue
 
-        # Check path collision for different id
-        path_existing = conn.execute(
-            "SELECT id FROM photos WHERE storage_path = ?", (str(path),)
-        ).fetchone()
-        if path_existing and path_existing["id"] != photo_id:
-            # Same path, different content — update the row
-            conn.execute("DELETE FROM photos WHERE storage_path = ?", (str(path),))
+            # Path collision: same path, different content — wipe old row first.
+            path_existing = session.execute(
+                select(Photo.id).where(Photo.storage_path == str(path))
+            ).first()
+            if path_existing and path_existing[0] != photo_id:
+                session.execute(delete(Photo).where(Photo.storage_path == str(path)))
 
-        exif = _extract_exif(path)
-        now = datetime.now(timezone.utc).isoformat()
+            exif = _extract_exif(path)
+            now = datetime.now(timezone.utc).isoformat()
 
-        conn.execute(
-            """
-            INSERT INTO photos (id, storage_path, original_filename, taken_at, lat, lng, scan_indexed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                storage_path = excluded.storage_path,
-                taken_at = excluded.taken_at,
-                lat = excluded.lat,
-                lng = excluded.lng,
-                scan_indexed_at = excluded.scan_indexed_at
-            """,
-            (
-                photo_id,
-                str(path),
-                path.name,
-                exif["taken_at"].isoformat() if exif["taken_at"] else None,
-                exif["lat"],
-                exif["lng"],
-                now,
-            ),
-        )
-        scanned += 1
+            upsert_photo_scan(
+                session,
+                id=photo_id,
+                storage_path=str(path),
+                original_filename=path.name,
+                taken_at=exif["taken_at"].isoformat() if exif["taken_at"] else None,
+                lat=exif["lat"],
+                lng=exif["lng"],
+                scan_indexed_at=now,
+            )
+            scanned += 1
 
-    conn.commit()
-    conn.close()
     print(f"scan: {scanned} indexed, {skipped} skipped")
     return scanned
 

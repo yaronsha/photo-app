@@ -55,12 +55,31 @@ def tmp_env(tmp_path, monkeypatch):
     cfg_path.write_text(json.dumps(cfg))
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    # Don't let an outer DATABASE_URL leak into the test engine.
+    monkeypatch.delenv("DATABASE_URL", raising=False)
 
     import app.config as config_mod
     monkeypatch.setattr(config_mod, "_CONFIG_PATH", cfg_path)
     monkeypatch.setattr(config_mod, "_settings", None)
 
-    return {"photos_dir": photos_dir, "data_dir": data_dir, "cfg_path": cfg_path}
+    # Drop any cached SQLAlchemy engine so the next call resolves the new db_path.
+    from app.db import dispose_engines
+    dispose_engines()
+
+    yield {"photos_dir": photos_dir, "data_dir": data_dir, "cfg_path": cfg_path}
+
+    # Teardown: ensure engines tied to this tmp_path are closed before the
+    # directory is wiped (otherwise a stray connection can hold a WAL file).
+    dispose_engines()
+
+
+@pytest.fixture()
+def db_session(tmp_env):
+    """Yield a session bound to the test's engine."""
+    from app.db import get_session, init_schema
+    init_schema()
+    with get_session() as session:
+        yield session
 
 
 def write_config(cfg_path: Path, **overrides) -> None:
@@ -70,6 +89,9 @@ def write_config(cfg_path: Path, **overrides) -> None:
     cfg_path.write_text(json.dumps(raw))
     import app.config as config_mod
     config_mod._settings = None
+    # Settings change → recompute db url; drop cached engine to be safe.
+    from app.db import dispose_engines
+    dispose_engines()
 
 
 FULL_CAPTION_RESPONSE = {

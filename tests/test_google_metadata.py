@@ -1,7 +1,9 @@
 """Tests for app/indexer/google_metadata.py — sidecar enrichment + people aliases."""
 import json
-import sqlite3
-from pathlib import Path
+
+from sqlalchemy import select, update
+
+from app.db import Person, Photo, PhotoPerson, get_session
 
 from .conftest import make_png, write_config
 
@@ -13,11 +15,10 @@ def _scan_photo(tmp_env, name: str = "img.png") -> str:
     import app.indexer.scan as scan_mod
     scan_mod.run_scan()
 
-    conn = sqlite3.connect(str(tmp_env["data_dir"] / "photos.db"))
-    photo_id = conn.execute(
-        "SELECT id FROM photos WHERE original_filename = ?", (name,)
-    ).fetchone()[0]
-    conn.close()
+    with get_session() as s:
+        photo_id = s.execute(
+            select(Photo.id).where(Photo.original_filename == name)
+        ).scalar_one()
     return photo_id
 
 
@@ -34,14 +35,11 @@ def test_google_metadata_sets_taken_at_when_exif_missing(tmp_env):
     from app.indexer.google_metadata import run_google_metadata
     run_google_metadata()
 
-    conn = sqlite3.connect(str(tmp_env["data_dir"] / "photos.db"))
-    conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT taken_at, google_metadata_indexed_at FROM photos").fetchone()
-    conn.close()
-
-    assert row["taken_at"] is not None
-    assert "2020" in row["taken_at"]
-    assert row["google_metadata_indexed_at"] is not None
+    with get_session() as s:
+        row = s.query(Photo).first()
+    assert row.taken_at is not None
+    assert "2020" in row.taken_at
+    assert row.google_metadata_indexed_at is not None
 
 
 def test_google_metadata_fills_lat_lng(tmp_env):
@@ -53,13 +51,10 @@ def test_google_metadata_fills_lat_lng(tmp_env):
     from app.indexer.google_metadata import run_google_metadata
     run_google_metadata()
 
-    conn = sqlite3.connect(str(tmp_env["data_dir"] / "photos.db"))
-    conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT lat, lng FROM photos").fetchone()
-    conn.close()
-
-    assert row["lat"] == 32.0853
-    assert row["lng"] == 34.7818
+    with get_session() as s:
+        row = s.query(Photo).first()
+    assert row.lat == 32.0853
+    assert row.lng == 34.7818
 
 
 def test_google_metadata_stores_description(tmp_env):
@@ -69,12 +64,9 @@ def test_google_metadata_stores_description(tmp_env):
     from app.indexer.google_metadata import run_google_metadata
     run_google_metadata()
 
-    conn = sqlite3.connect(str(tmp_env["data_dir"] / "photos.db"))
-    conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT description FROM photos").fetchone()
-    conn.close()
-
-    assert row["description"] == "birthday party"
+    with get_session() as s:
+        row = s.query(Photo).first()
+    assert row.description == "birthday party"
 
 
 def test_google_metadata_populates_photo_people_via_aliases(tmp_env):
@@ -97,12 +89,12 @@ def test_google_metadata_populates_photo_people_via_aliases(tmp_env):
     from app.indexer.google_metadata import run_google_metadata
     run_google_metadata()
 
-    conn = sqlite3.connect(str(tmp_env["data_dir"] / "photos.db"))
-    rows = conn.execute(
-        "SELECT person_id FROM photo_people WHERE photo_id = ? ORDER BY person_id", (photo_id,)
-    ).fetchall()
-    conn.close()
-
+    with get_session() as s:
+        rows = s.execute(
+            select(PhotoPerson.person_id)
+            .where(PhotoPerson.photo_id == photo_id)
+            .order_by(PhotoPerson.person_id)
+        ).all()
     assert {r[0] for r in rows} == {"yaron", "noa"}
 
 
@@ -118,10 +110,8 @@ def test_google_metadata_ignores_unknown_alias(tmp_env):
     from app.indexer.google_metadata import run_google_metadata
     run_google_metadata()
 
-    conn = sqlite3.connect(str(tmp_env["data_dir"] / "photos.db"))
-    rows = conn.execute("SELECT * FROM photo_people").fetchall()
-    conn.close()
-
+    with get_session() as s:
+        rows = s.query(PhotoPerson).all()
     assert rows == []
 
 
@@ -134,13 +124,10 @@ def test_google_metadata_no_sidecar_still_stamps(tmp_env):
     from app.indexer.google_metadata import run_google_metadata
     run_google_metadata()
 
-    conn = sqlite3.connect(str(tmp_env["data_dir"] / "photos.db"))
-    conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT google_metadata_indexed_at, description FROM photos").fetchone()
-    conn.close()
-
-    assert row["google_metadata_indexed_at"] is not None
-    assert row["description"] is None
+    with get_session() as s:
+        row = s.query(Photo).first()
+    assert row.google_metadata_indexed_at is not None
+    assert row.description is None
 
 
 def test_google_metadata_idempotent(tmp_env):
@@ -168,10 +155,8 @@ def test_google_metadata_seeds_people_table(tmp_env):
     from app.indexer.google_metadata import run_google_metadata
     run_google_metadata()
 
-    conn = sqlite3.connect(str(tmp_env["data_dir"] / "photos.db"))
-    rows = conn.execute("SELECT id, name FROM people ORDER BY id").fetchall()
-    conn.close()
-
+    with get_session() as s:
+        rows = s.execute(select(Person.id, Person.name).order_by(Person.id)).all()
     assert rows == [("noa", "Noa Shapira"), ("yaron", "Yaron Shapira")]
 
 
@@ -179,23 +164,18 @@ def test_google_metadata_does_not_overwrite_existing_taken_at(tmp_env):
     """If EXIF gave us a taken_at, sidecar should not overwrite."""
     photo_id = _scan_photo(tmp_env)
     # Manually set taken_at as if from EXIF
-    db_path = tmp_env["data_dir"] / "photos.db"
-    conn = sqlite3.connect(str(db_path))
-    conn.execute(
-        "UPDATE photos SET taken_at = ? WHERE id = ?",
-        ("2015-05-15T10:00:00+00:00", photo_id),
-    )
-    conn.commit()
-    conn.close()
+    with get_session() as s:
+        s.execute(
+            update(Photo)
+            .where(Photo.id == photo_id)
+            .values(taken_at="2015-05-15T10:00:00+00:00")
+        )
 
     _write_sidecar(tmp_env, photo_id, {"photoTakenTime": {"timestamp": "1577880000"}})
 
     from app.indexer.google_metadata import run_google_metadata
     run_google_metadata()
 
-    conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT taken_at FROM photos").fetchone()
-    conn.close()
-
-    assert "2015" in row["taken_at"]
+    with get_session() as s:
+        row = s.query(Photo).first()
+    assert "2015" in row.taken_at

@@ -17,6 +17,7 @@ dependencies = [
     "python-dotenv",
     "pydantic>=2",
     "reverse_geocoder==1.5.1",
+    "sqlalchemy>=2,<3",
 ]
 
 [project.scripts]

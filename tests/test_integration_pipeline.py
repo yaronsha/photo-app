@@ -5,17 +5,19 @@ External providers (caption API, embed API, geocoder) are mocked.
 SQLite and filesystem are real (tmp_path isolation via pipeline_env fixture).
 """
 import json
-import sqlite3
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
-from .conftest import make_png, FULL_CAPTION_RESPONSE, FAKE_EMBED_VEC
+from sqlalchemy import select, update
+
+from app.db import Photo, get_session
+
+from .conftest import FAKE_EMBED_VEC, FULL_CAPTION_RESPONSE, make_png
 
 
-def _db(env):
-    """Open a row_factory sqlite3 connection to the test DB."""
-    conn = sqlite3.connect(str(env["data_dir"] / "photos.db"))
-    conn.row_factory = sqlite3.Row
-    return conn
+def _photo_row():
+    """Read the (single) photos row in the current test DB."""
+    with get_session() as s:
+        return s.query(Photo).first()
 
 
 def test_full_pipeline_scan_to_embed(pipeline_env):
@@ -48,23 +50,16 @@ def test_full_pipeline_scan_to_embed(pipeline_env):
     ):
         embed_mod.run_embed()
 
-    conn = _db(env)
-    row = conn.execute(
-        "SELECT caption, tags, activities, content_type, "
-        "scan_indexed_at, google_metadata_indexed_at, caption_indexed_at, vector_indexed_at, "
-        "caption_schema_version, embed_schema_version FROM photos"
-    ).fetchone()
-    conn.close()
-
-    assert row["scan_indexed_at"] is not None
-    assert row["google_metadata_indexed_at"] is not None
-    assert row["caption_indexed_at"] is not None
-    assert row["vector_indexed_at"] is not None
-    assert row["caption"] == "A sunny outdoor scene"
-    assert json.loads(row["tags"]) == ["sunny", "outdoor", "nature"]
-    assert row["content_type"] == "photo"
-    assert row["caption_schema_version"] == caption_mod.CAPTION_SCHEMA_VERSION
-    assert row["embed_schema_version"] == caption_mod.CAPTION_SCHEMA_VERSION
+    row = _photo_row()
+    assert row.scan_indexed_at is not None
+    assert row.google_metadata_indexed_at is not None
+    assert row.caption_indexed_at is not None
+    assert row.vector_indexed_at is not None
+    assert row.caption == "A sunny outdoor scene"
+    assert row.tags == ["sunny", "outdoor", "nature"]
+    assert row.content_type == "photo"
+    assert row.caption_schema_version == caption_mod.CAPTION_SCHEMA_VERSION
+    assert row.embed_schema_version == caption_mod.CAPTION_SCHEMA_VERSION
     assert env["mock_caption_provider"].caption.call_count == 1
     assert env["mock_embed_provider"].embed.call_count == 1
     assert env["mock_collection"].upsert.call_count == 1
@@ -124,9 +119,8 @@ def test_sidecar_gps_flows_to_location_hint_in_caption(pipeline_env):
 
     scan_mod.run_scan()
 
-    conn = sqlite3.connect(str(env["data_dir"] / "photos.db"))
-    photo_id = conn.execute("SELECT id FROM photos").fetchone()[0]
-    conn.close()
+    with get_session() as s:
+        photo_id = s.execute(select(Photo.id)).scalar_one()
 
     sidecars_dir = env["data_dir"] / "sidecars"
     sidecars_dir.mkdir(parents=True, exist_ok=True)
@@ -140,10 +134,8 @@ def test_sidecar_gps_flows_to_location_hint_in_caption(pipeline_env):
     with patch("app.indexer.location.reverse_geocoder.search", return_value=fake_geocode):
         loc_mod.run_location()
 
-    conn = _db(env)
-    row = conn.execute("SELECT location_name FROM photos").fetchone()
-    conn.close()
-    assert row["location_name"] == "Tel Aviv-Yafo, IL"
+    row = _photo_row()
+    assert row.location_name == "Tel Aviv-Yafo, IL"
 
     with patch.object(caption_mod, "get_caption_provider", return_value=env["mock_caption_provider"]):
         caption_mod.run_caption(limit=10)
@@ -197,12 +189,11 @@ def test_document_content_type_blocks_embed(pipeline_env):
     assert env["mock_collection"].upsert.call_count == 1
 
     upserted_id = env["mock_collection"].upsert.call_args.kwargs["ids"][0]
-    conn = _db(env)
-    photo_row = conn.execute(
-        "SELECT id FROM photos WHERE original_filename = 'photo.png'"
-    ).fetchone()
-    conn.close()
-    assert upserted_id == photo_row["id"]
+    with get_session() as s:
+        photo_id = s.execute(
+            select(Photo.id).where(Photo.original_filename == "photo.png")
+        ).scalar_one()
+    assert upserted_id == photo_id
 
 
 def test_reindex_forces_full_pipeline_reprocess(pipeline_env):
@@ -287,16 +278,11 @@ def test_merge_autoscan_feeds_downstream_steps(pipeline_env, tmp_path):
 
     assert embedded == 1
 
-    conn = _db(env)
-    row = conn.execute(
-        "SELECT original_filename, scan_indexed_at, caption_indexed_at, vector_indexed_at FROM photos"
-    ).fetchone()
-    conn.close()
-
-    assert row["original_filename"] == "vacation.png"
-    assert row["scan_indexed_at"] is not None
-    assert row["caption_indexed_at"] is not None
-    assert row["vector_indexed_at"] is not None
+    row = _photo_row()
+    assert row.original_filename == "vacation.png"
+    assert row.scan_indexed_at is not None
+    assert row.caption_indexed_at is not None
+    assert row.vector_indexed_at is not None
 
 
 def test_embed_schema_version_tracks_caption_schema_version(pipeline_env):
@@ -325,19 +311,13 @@ def test_embed_schema_version_tracks_caption_schema_version(pipeline_env):
     ):
         embed_mod.run_embed()
 
-    conn = _db(env)
-    row = conn.execute(
-        "SELECT caption_schema_version, embed_schema_version FROM photos"
-    ).fetchone()
-    conn.close()
-    csv = row["caption_schema_version"]
-    assert row["embed_schema_version"] == csv
+    row = _photo_row()
+    csv = row.caption_schema_version
+    assert row.embed_schema_version == csv
 
     # Simulate schema bump
-    conn = sqlite3.connect(str(env["data_dir"] / "photos.db"))
-    conn.execute("UPDATE photos SET caption_schema_version = ?", (csv + 1,))
-    conn.commit()
-    conn.close()
+    with get_session() as s:
+        s.execute(update(Photo).values(caption_schema_version=csv + 1))
 
     env["mock_embed_provider"].embed.reset_mock()
     env["mock_collection"].upsert.reset_mock()
@@ -353,10 +333,8 @@ def test_embed_schema_version_tracks_caption_schema_version(pipeline_env):
     assert count == 1
     assert env["mock_embed_provider"].embed.call_count == 1
 
-    conn = _db(env)
-    row = conn.execute("SELECT caption_schema_version, embed_schema_version FROM photos").fetchone()
-    conn.close()
-    assert row["embed_schema_version"] == csv + 1
+    row = _photo_row()
+    assert row.embed_schema_version == csv + 1
 
 
 def test_pre_caption_chains_scan_google_metadata_location(pipeline_env):
@@ -369,9 +347,8 @@ def test_pre_caption_chains_scan_google_metadata_location(pipeline_env):
     import app.indexer.location as loc_mod
 
     scan_mod.run_scan()
-    conn = sqlite3.connect(str(env["data_dir"] / "photos.db"))
-    photo_id = conn.execute("SELECT id FROM photos").fetchone()[0]
-    conn.close()
+    with get_session() as s:
+        photo_id = s.execute(select(Photo.id)).scalar_one()
 
     sidecars_dir = env["data_dir"] / "sidecars"
     sidecars_dir.mkdir(parents=True, exist_ok=True)
@@ -381,10 +358,8 @@ def test_pre_caption_chains_scan_google_metadata_location(pipeline_env):
     }))
 
     # Reset so pre_caption runs scan fresh
-    conn = sqlite3.connect(str(env["data_dir"] / "photos.db"))
-    conn.execute("UPDATE photos SET scan_indexed_at = NULL")
-    conn.commit()
-    conn.close()
+    with get_session() as s:
+        s.execute(update(Photo).values(scan_indexed_at=None))
 
     fake_geocode = [{"name": "London", "cc": "GB"}]
     with patch("app.indexer.location.reverse_geocoder.search", return_value=fake_geocode):
@@ -392,17 +367,12 @@ def test_pre_caption_chains_scan_google_metadata_location(pipeline_env):
         gm_mod.run_google_metadata()
         loc_mod.run_location()
 
-    conn = _db(env)
-    row = conn.execute(
-        "SELECT scan_indexed_at, google_metadata_indexed_at, location_name, taken_at FROM photos"
-    ).fetchone()
-    conn.close()
-
-    assert row["scan_indexed_at"] is not None
-    assert row["google_metadata_indexed_at"] is not None
-    assert row["location_name"] == "London, GB"
-    assert row["taken_at"] is not None
-    assert "2020" in row["taken_at"]
+    row = _photo_row()
+    assert row.scan_indexed_at is not None
+    assert row.google_metadata_indexed_at is not None
+    assert row.location_name == "London, GB"
+    assert row.taken_at is not None
+    assert "2020" in row.taken_at
 
 
 def test_caption_limit_restricts_downstream_embed(pipeline_env):
@@ -438,9 +408,6 @@ def test_caption_limit_restricts_downstream_embed(pipeline_env):
     assert embedded == 2
     assert env["mock_collection"].upsert.call_count == 2
 
-    conn = _db(env)
-    not_embedded = conn.execute(
-        "SELECT COUNT(*) FROM photos WHERE vector_indexed_at IS NULL"
-    ).fetchone()[0]
-    conn.close()
+    with get_session() as s:
+        not_embedded = s.query(Photo).filter(Photo.vector_indexed_at.is_(None)).count()
     assert not_embedded == 3
