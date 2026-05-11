@@ -13,4 +13,6 @@ node_modules/
 *.tsbuildinfo
 *.egg-info/
 photos.bak.*.db
+app/web/.vite/
+app/web/test-results/
 .claude/settings.local.json
