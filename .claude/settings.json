@@ -2,11 +2,35 @@
   "hooks": {
     "PreToolUse": [
       {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE=$(jq -r '.tool_input.file_path // empty'); if [[ \"$FILE\" =~ \\.env$ ]]; then echo '{\"systemMessage\": \"⚠️ .env contains secrets — use .env.example instead\", \"continue\": false}'; exit 1; fi; exit 0"
+          }
+        ]
+      },
+      {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/package_audit_check.sh"
+          },
+          {
+            "type": "command",
+            "command": "CMD=$(jq -r '.tool_input.command // empty'); case \"$CMD\" in *'--step caption'*|*'--step embed'*) case \"$CMD\" in *'--limit'*) ;; *) echo '{\"systemMessage\": \"⚠️  Indexer running without --limit. This will hit all photos and cost money. Use --limit to test first.\", \"continue\": true}'; ;; esac ;; esac; exit 0"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE=$(jq -r '.tool_input.file_path // .tool_response.filePath // empty'); if [[ \"$FILE\" =~ /app/ ]] || [[ \"$FILE\" =~ ^app/ ]]; then cd \"$CLAUDE_PROJECT_DIR\" && uv run pytest --no-header -q 2>/dev/null || true; fi; exit 0"
           }
         ]
       }
