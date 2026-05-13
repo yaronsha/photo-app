@@ -30,7 +30,11 @@ PHOTOS_ATTRIBUTE_COLUMNS: list[tuple[str, str]] = [
 
 def init_schema(engine: Engine | None = None) -> None:
     eng = engine or get_engine()
-    Base.metadata.create_all(eng)
+    # embeddings table uses pgvector types not supported by SQLite;
+    # it is created exclusively via Alembic when VECTOR_BACKEND=pgvector.
+    skip = {"embeddings"} if eng.dialect.name == "sqlite" else set()
+    tables = [t for t in Base.metadata.sorted_tables if t.name not in skip]
+    Base.metadata.create_all(eng, tables=tables)
 
     # Backstop ALTERs for older sqlite field DBs only.
     if eng.dialect.name != "sqlite":
