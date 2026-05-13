@@ -4,7 +4,12 @@ from __future__ import annotations
 import json
 
 import sqlalchemy as sa
+from sqlalchemy import JSON
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import TypeDecorator
+
+# Dialect-aware JSON column: JSONB on Postgres, JSON (TEXT) on SQLite.
+JsonCol = JSON().with_variant(JSONB(), "postgresql")
 
 
 class JSONString(TypeDecorator):

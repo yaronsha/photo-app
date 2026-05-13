@@ -18,6 +18,9 @@ dependencies = [
     "pydantic>=2",
     "reverse_geocoder==1.5.1",
     "sqlalchemy>=2,<3",
+    "psycopg[binary]>=3.2",
+    "pgvector>=0.3",
+    "alembic>=1.13",
 ]
 
 [project.scripts]

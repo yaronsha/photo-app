@@ -4,9 +4,9 @@ from typing import Literal
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from ..chroma import get_collection
 from ..db import Person, Photo, PhotoPerson, get_session
 from ..indexer.providers import get_embed_provider
+from ..vectordb import get_vector_backend
 from ..models import SearchResult
 
 
@@ -154,21 +154,19 @@ def _vector_search(
     provider = get_embed_provider()
     qvec = provider.embed(query)
 
-    collection = get_collection()
+    backend = get_vector_backend()
     has_filter = (
         lo is not None or hi is not None or bool(person_ids) or not include_docs
     )
     # "all" mode is far more selective than "any"; overfetch may still under-return
     # for very strict multi-person intersections in large collections.
     overfetch = min((limit + offset) * 4, 200) if has_filter else min(limit + offset, 200)
-    n = min(overfetch, collection.count() or 1)
+    n = min(overfetch, backend.count() or 1)
 
-    chroma_results = collection.query(query_embeddings=[qvec], n_results=n)
+    pairs = backend.query(qvec, n)
 
-    ids: list[str] = chroma_results["ids"][0] if chroma_results["ids"] else []
-    distances: list[float] = (
-        chroma_results["distances"][0] if chroma_results["distances"] else []
-    )
+    ids: list[str] = [p[0] for p in pairs]
+    distances: list[float] = [p[1] for p in pairs]
     if not ids:
         return [], False
 
