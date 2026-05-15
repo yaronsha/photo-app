@@ -31,7 +31,6 @@ def test_full_pipeline_scan_to_embed(pipeline_env):
     import app.indexer.location as loc_mod
     import app.indexer.caption as caption_mod
     import app.indexer.embed as embed_mod
-    import app.chroma as chroma_mod
 
     scan_mod.run_scan()
     gm_mod.run_google_metadata()
@@ -42,13 +41,8 @@ def test_full_pipeline_scan_to_embed(pipeline_env):
     with patch.object(caption_mod, "get_caption_provider", return_value=env["mock_caption_provider"]):
         caption_mod.run_caption(limit=10)
 
-    with (
-        patch.object(embed_mod, "get_embed_provider", return_value=env["mock_embed_provider"]),
-        patch.object(embed_mod, "get_collection", return_value=env["mock_collection"]),
-        patch.object(embed_mod, "assert_embed_model"),
-        patch.object(chroma_mod, "get_collection", return_value=env["mock_collection"]),
-    ):
-        embed_mod.run_embed()
+    with patch.object(embed_mod, "get_embed_provider", return_value=env["mock_embed_provider"]):
+        embed_mod.run_embed(vector_db=env["mock_vector_db"])
 
     row = _photo_row()
     assert row.scan_indexed_at is not None
@@ -62,7 +56,7 @@ def test_full_pipeline_scan_to_embed(pipeline_env):
     assert row.embed_schema_version == caption_mod.CAPTION_SCHEMA_VERSION
     assert env["mock_caption_provider"].caption.call_count == 1
     assert env["mock_embed_provider"].embed.call_count == 1
-    assert env["mock_collection"].upsert.call_count == 1
+    assert env["mock_vector_db"].upsert.call_count == 1
 
 
 def test_pipeline_idempotent_no_api_calls_on_second_run(pipeline_env):
@@ -76,7 +70,6 @@ def test_pipeline_idempotent_no_api_calls_on_second_run(pipeline_env):
     import app.indexer.location as loc_mod
     import app.indexer.caption as caption_mod
     import app.indexer.embed as embed_mod
-    import app.chroma as chroma_mod
 
     def run_pipeline():
         scan_mod.run_scan()
@@ -85,13 +78,8 @@ def test_pipeline_idempotent_no_api_calls_on_second_run(pipeline_env):
             loc_mod.run_location()
         with patch.object(caption_mod, "get_caption_provider", return_value=env["mock_caption_provider"]):
             caption_mod.run_caption(limit=10)
-        with (
-            patch.object(embed_mod, "get_embed_provider", return_value=env["mock_embed_provider"]),
-            patch.object(embed_mod, "get_collection", return_value=env["mock_collection"]),
-            patch.object(embed_mod, "assert_embed_model"),
-            patch.object(chroma_mod, "get_collection", return_value=env["mock_collection"]),
-        ):
-            embed_mod.run_embed()
+        with patch.object(embed_mod, "get_embed_provider", return_value=env["mock_embed_provider"]):
+            embed_mod.run_embed(vector_db=env["mock_vector_db"])
 
     run_pipeline()
     assert env["mock_caption_provider"].caption.call_count == 1
@@ -99,12 +87,12 @@ def test_pipeline_idempotent_no_api_calls_on_second_run(pipeline_env):
 
     env["mock_caption_provider"].caption.reset_mock()
     env["mock_embed_provider"].embed.reset_mock()
-    env["mock_collection"].upsert.reset_mock()
+    env["mock_vector_db"].upsert.reset_mock()
 
     run_pipeline()
     assert env["mock_caption_provider"].caption.call_count == 0, "caption re-called on 2nd run"
     assert env["mock_embed_provider"].embed.call_count == 0, "embed re-called on 2nd run"
-    assert env["mock_collection"].upsert.call_count == 0, "chroma upsert re-called on 2nd run"
+    assert env["mock_vector_db"].upsert.call_count == 0, "vector upsert re-called on 2nd run"
 
 
 def test_sidecar_gps_flows_to_location_hint_in_caption(pipeline_env):
@@ -156,7 +144,6 @@ def test_document_content_type_blocks_embed(pipeline_env):
     import app.indexer.google_metadata as gm_mod
     import app.indexer.caption as caption_mod
     import app.indexer.embed as embed_mod
-    import app.chroma as chroma_mod
 
     scan_mod.run_scan()
     gm_mod.run_google_metadata()
@@ -177,18 +164,13 @@ def test_document_content_type_blocks_embed(pipeline_env):
 
     assert caption_count == 3
 
-    with (
-        patch.object(embed_mod, "get_embed_provider", return_value=env["mock_embed_provider"]),
-        patch.object(embed_mod, "get_collection", return_value=env["mock_collection"]),
-        patch.object(embed_mod, "assert_embed_model"),
-        patch.object(chroma_mod, "get_collection", return_value=env["mock_collection"]),
-    ):
-        embedded_count = embed_mod.run_embed()
+    with patch.object(embed_mod, "get_embed_provider", return_value=env["mock_embed_provider"]):
+        embedded_count = embed_mod.run_embed(vector_db=env["mock_vector_db"])
 
     assert embedded_count == 1, "only 'photo' content_type should be embedded"
-    assert env["mock_collection"].upsert.call_count == 1
+    assert env["mock_vector_db"].upsert.call_count == 1
 
-    upserted_id = env["mock_collection"].upsert.call_args.kwargs["ids"][0]
+    upserted_id = env["mock_vector_db"].upsert.call_args.args[0]
     with get_session() as s:
         photo_id = s.execute(
             select(Photo.id).where(Photo.original_filename == "photo.png")
@@ -207,7 +189,6 @@ def test_reindex_forces_full_pipeline_reprocess(pipeline_env):
     import app.indexer.location as loc_mod
     import app.indexer.caption as caption_mod
     import app.indexer.embed as embed_mod
-    import app.chroma as chroma_mod
 
     def run_pipeline(reindex=False):
         scan_mod.run_scan(reindex=reindex)
@@ -216,13 +197,8 @@ def test_reindex_forces_full_pipeline_reprocess(pipeline_env):
             loc_mod.run_location(reindex=reindex)
         with patch.object(caption_mod, "get_caption_provider", return_value=env["mock_caption_provider"]):
             caption_mod.run_caption(limit=10, reindex=reindex)
-        with (
-            patch.object(embed_mod, "get_embed_provider", return_value=env["mock_embed_provider"]),
-            patch.object(embed_mod, "get_collection", return_value=env["mock_collection"]),
-            patch.object(embed_mod, "assert_embed_model"),
-            patch.object(chroma_mod, "get_collection", return_value=env["mock_collection"]),
-        ):
-            embed_mod.run_embed(reindex=reindex)
+        with patch.object(embed_mod, "get_embed_provider", return_value=env["mock_embed_provider"]):
+            embed_mod.run_embed(reindex=reindex, vector_db=env["mock_vector_db"])
 
     run_pipeline(reindex=False)
     assert env["mock_caption_provider"].caption.call_count == 1
@@ -230,12 +206,12 @@ def test_reindex_forces_full_pipeline_reprocess(pipeline_env):
 
     env["mock_caption_provider"].caption.reset_mock()
     env["mock_embed_provider"].embed.reset_mock()
-    env["mock_collection"].upsert.reset_mock()
+    env["mock_vector_db"].upsert.reset_mock()
 
     run_pipeline(reindex=True)
     assert env["mock_caption_provider"].caption.call_count == 1, "reindex=True must re-caption"
     assert env["mock_embed_provider"].embed.call_count == 1, "reindex=True must re-embed"
-    assert env["mock_collection"].upsert.call_count == 1, "reindex=True must re-upsert to chroma"
+    assert env["mock_vector_db"].upsert.call_count == 1, "reindex=True must re-upsert to vector db"
 
 
 def test_merge_autoscan_feeds_downstream_steps(pipeline_env, tmp_path):
@@ -246,7 +222,6 @@ def test_merge_autoscan_feeds_downstream_steps(pipeline_env, tmp_path):
     import app.indexer.scan as scan_mod
     import app.indexer.caption as caption_mod
     import app.indexer.embed as embed_mod
-    import app.chroma as chroma_mod
 
     takeout = tmp_path / "Takeout"
     folder = takeout / "Photos from 2022"
@@ -268,13 +243,8 @@ def test_merge_autoscan_feeds_downstream_steps(pipeline_env, tmp_path):
     assert caption_count == 1
     env["mock_caption_provider"].caption.assert_called_once()
 
-    with (
-        patch.object(embed_mod, "get_embed_provider", return_value=env["mock_embed_provider"]),
-        patch.object(embed_mod, "get_collection", return_value=env["mock_collection"]),
-        patch.object(embed_mod, "assert_embed_model"),
-        patch.object(chroma_mod, "get_collection", return_value=env["mock_collection"]),
-    ):
-        embedded = embed_mod.run_embed()
+    with patch.object(embed_mod, "get_embed_provider", return_value=env["mock_embed_provider"]):
+        embedded = embed_mod.run_embed(vector_db=env["mock_vector_db"])
 
     assert embedded == 1
 
@@ -295,7 +265,6 @@ def test_embed_schema_version_tracks_caption_schema_version(pipeline_env):
     import app.indexer.google_metadata as gm_mod
     import app.indexer.caption as caption_mod
     import app.indexer.embed as embed_mod
-    import app.chroma as chroma_mod
 
     scan_mod.run_scan()
     gm_mod.run_google_metadata()
@@ -303,13 +272,8 @@ def test_embed_schema_version_tracks_caption_schema_version(pipeline_env):
     with patch.object(caption_mod, "get_caption_provider", return_value=env["mock_caption_provider"]):
         caption_mod.run_caption(limit=10)
 
-    with (
-        patch.object(embed_mod, "get_embed_provider", return_value=env["mock_embed_provider"]),
-        patch.object(embed_mod, "get_collection", return_value=env["mock_collection"]),
-        patch.object(embed_mod, "assert_embed_model"),
-        patch.object(chroma_mod, "get_collection", return_value=env["mock_collection"]),
-    ):
-        embed_mod.run_embed()
+    with patch.object(embed_mod, "get_embed_provider", return_value=env["mock_embed_provider"]):
+        embed_mod.run_embed(vector_db=env["mock_vector_db"])
 
     row = _photo_row()
     csv = row.caption_schema_version
@@ -320,15 +284,10 @@ def test_embed_schema_version_tracks_caption_schema_version(pipeline_env):
         s.execute(update(Photo).values(caption_schema_version=csv + 1))
 
     env["mock_embed_provider"].embed.reset_mock()
-    env["mock_collection"].upsert.reset_mock()
+    env["mock_vector_db"].upsert.reset_mock()
 
-    with (
-        patch.object(embed_mod, "get_embed_provider", return_value=env["mock_embed_provider"]),
-        patch.object(embed_mod, "get_collection", return_value=env["mock_collection"]),
-        patch.object(embed_mod, "assert_embed_model"),
-        patch.object(chroma_mod, "get_collection", return_value=env["mock_collection"]),
-    ):
-        count = embed_mod.run_embed(reindex=True)
+    with patch.object(embed_mod, "get_embed_provider", return_value=env["mock_embed_provider"]):
+        count = embed_mod.run_embed(reindex=True, vector_db=env["mock_vector_db"])
 
     assert count == 1
     assert env["mock_embed_provider"].embed.call_count == 1
@@ -386,7 +345,6 @@ def test_caption_limit_restricts_downstream_embed(pipeline_env):
     import app.indexer.google_metadata as gm_mod
     import app.indexer.caption as caption_mod
     import app.indexer.embed as embed_mod
-    import app.chroma as chroma_mod
 
     scan_mod.run_scan()
     gm_mod.run_google_metadata()
@@ -397,16 +355,11 @@ def test_caption_limit_restricts_downstream_embed(pipeline_env):
     assert captioned == 2
     assert env["mock_caption_provider"].caption.call_count == 2
 
-    with (
-        patch.object(embed_mod, "get_embed_provider", return_value=env["mock_embed_provider"]),
-        patch.object(embed_mod, "get_collection", return_value=env["mock_collection"]),
-        patch.object(embed_mod, "assert_embed_model"),
-        patch.object(chroma_mod, "get_collection", return_value=env["mock_collection"]),
-    ):
-        embedded = embed_mod.run_embed()
+    with patch.object(embed_mod, "get_embed_provider", return_value=env["mock_embed_provider"]):
+        embedded = embed_mod.run_embed(vector_db=env["mock_vector_db"])
 
     assert embedded == 2
-    assert env["mock_collection"].upsert.call_count == 2
+    assert env["mock_vector_db"].upsert.call_count == 2
 
     with get_session() as s:
         not_embedded = s.query(Photo).filter(Photo.vector_indexed_at.is_(None)).count()
