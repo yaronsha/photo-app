@@ -29,9 +29,15 @@ photos-index = "app.indexer.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
 
+[tool.pytest.ini_options]
+markers = [
+    "requires_postgres: needs TEST_DATABASE_URL pointing at a Postgres+pgvector instance",
+]
+
 [dependency-groups]
 dev = [
     "pytest",
     "pytest-asyncio",
+    "pytest-docker>=3.2",
     "httpx",
 ]
