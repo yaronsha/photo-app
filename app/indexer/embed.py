@@ -9,10 +9,12 @@ from ..vectordb import get_vector_backend
 from .providers import get_embed_provider
 
 
-def run_embed(reindex: bool = False, limit: int | None = None) -> int:
+def run_embed(reindex: bool = False, limit: int | None = None, vector_db=None) -> int:
     settings = get_settings()
     provider = get_embed_provider()
-    backend = get_vector_backend()
+    if vector_db is None:
+        vector_db = get_vector_backend()
+    backend = vector_db
 
     print(f"embed: model={settings.embed_model} reindex={reindex} limit={limit}")
 

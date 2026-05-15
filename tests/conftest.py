@@ -112,12 +112,8 @@ FAKE_EMBED_VEC = [0.1] * 1536
 
 @pytest.fixture()
 def pipeline_env(tmp_env, monkeypatch):
-    """tmp_env + pre-wired mock caption/embed providers + mock chroma collection."""
-    import app.chroma as chroma_mod
-
-    # Reset module-level chroma singletons — prevents cross-test contamination
-    monkeypatch.setattr(chroma_mod, "_client", None)
-    monkeypatch.setattr(chroma_mod, "_collection", None)
+    """tmp_env + pre-wired mock caption/embed providers + mock vector backend."""
+    from app.vectordb.base import VectorBackend
 
     mock_caption_provider = MagicMock()
     mock_caption_provider.caption = AsyncMock(return_value=FULL_CAPTION_RESPONSE)
@@ -125,13 +121,14 @@ def pipeline_env(tmp_env, monkeypatch):
     mock_embed_provider = MagicMock()
     mock_embed_provider.embed = MagicMock(return_value=FAKE_EMBED_VEC)
 
-    mock_collection = MagicMock()
-    mock_collection.upsert = MagicMock()
-    mock_collection.metadata = {"embed_model": "text-embedding-3-small"}
+    mock_vector_db = MagicMock(spec=VectorBackend)
+    mock_vector_db.query.return_value = []
+    mock_vector_db.count.return_value = 0
+    mock_vector_db.upsert.return_value = None
 
     return {
         **tmp_env,
         "mock_caption_provider": mock_caption_provider,
         "mock_embed_provider": mock_embed_provider,
-        "mock_collection": mock_collection,
+        "mock_vector_db": mock_vector_db,
     }
