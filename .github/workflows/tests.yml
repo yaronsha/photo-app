@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  unit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,10 +20,23 @@ jobs:
         run: uv sync
 
       - name: Run unit tests
-        run: uv run pytest -v --ignore=tests/test_integration_pipeline.py
+        run: uv run pytest -v -m "not requires_postgres"
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: uv sync
 
       - name: Run integration tests
-        run: uv run pytest tests/test_integration_pipeline.py -v
+        run: uv run pytest -v -m "requires_postgres"
 
   playwright:
     runs-on: ubuntu-latest
