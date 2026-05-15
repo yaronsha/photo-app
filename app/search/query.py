@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from ..db import Person, Photo, PhotoPerson, get_session
 from ..indexer.providers import get_embed_provider
 from ..vectordb import get_vector_backend
+from ..vectordb.base import VectorBackend
 from ..models import SearchResult
 
 
@@ -34,7 +35,7 @@ def search(
     person_ids: list[str] | None = None,
     people_mode: Literal["any", "all"] = "any",
     include_docs: bool = False,
-    vector_db=None,
+    vector_db: VectorBackend | None = None,
 ) -> tuple[list[SearchResult], bool]:
     lo, hi = _date_bounds(date_from, date_to)
     has_date = lo is not None or hi is not None
@@ -152,13 +153,12 @@ def _vector_search(
     offset: int = 0,
     people_mode: Literal["any", "all"] = "any",
     include_docs: bool = False,
-    vector_db=None,
+    vector_db: VectorBackend | None = None,
 ) -> tuple[list[SearchResult], bool]:
     provider = get_embed_provider()
     qvec = provider.embed(query)
 
-    if vector_db is None:
-        vector_db = get_vector_backend()
+    vector_db = vector_db or get_vector_backend()
     has_filter = (
         lo is not None or hi is not None or bool(person_ids) or not include_docs
     )
