@@ -20,6 +20,26 @@
       "console": "integratedTerminal"
     },
     {
+      "name": "FastAPI Server (Local Postgres)",
+      "type": "python",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "app.api.main:app",
+        "--reload",
+        "--host", "127.0.0.1",
+        "--port", "8000"
+      ],
+      "jinja": true,
+      "justMyCode": true,
+      "envFile": "${workspaceFolder}/.env.local.no-secrets",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "ENV_FILE": ".env.local.no-secrets"
+      },
+      "console": "integratedTerminal"
+    },
+    {
       "name": "Indexer CLI",
       "type": "python",
       "request": "launch",

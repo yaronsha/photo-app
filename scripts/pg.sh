@@ -5,6 +5,16 @@ set -euo pipefail
 
 CONTAINER="family-photos-pg"
 IMAGE="pgvector/pgvector:pg16"
+
+# Load env file: use ENV_FILE if set, otherwise .env
+ENV_FILE="${ENV_FILE:-.env}"
+if [[ -f "$ENV_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ENV_FILE"
+  set +a
+fi
+
 PG_USER="${PG_USER:-photos}"
 PG_PASSWORD="${PG_PASSWORD:-photos}"
 PG_DB="${PG_DB:-photos}"

@@ -113,12 +113,9 @@ def transfer(src_engine, dst_engine, direction: str, batch_size: int) -> None:
                 batch = []
                 for row in rows:
                     record = dict(row)
-                    for col in json_cols:
-                        if col in record:
-                            if sqlite_to_pg:
-                                record[col] = _from_json_text(record[col])
-                            else:
-                                record[col] = _to_json_text(record[col])
+                    # JSON columns: SQLite stores as TEXT, Postgres expects JSON string
+                    # Keep as strings for both directions (both DBs accept JSON strings)
+                    # No serialization/deserialization needed
                     batch.append(record)
 
                 # Upsert: delete-then-insert in a transaction avoids dialect-specific
