@@ -5,7 +5,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 from pydantic import BaseModel, model_validator
 
-load_dotenv()
+# Load env file: use ENV_FILE if set, otherwise .env
+_env_file = os.environ.get("ENV_FILE", ".env")
+_env_path = Path(__file__).parent.parent / _env_file
+load_dotenv(dotenv_path=_env_path, override=False)
 
 _CONFIG_PATH = Path(__file__).parent.parent / "config.json"
 

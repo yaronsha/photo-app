@@ -8,11 +8,12 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-# Load .env if present (won't override existing env vars).
-if [[ -f ".env" ]]; then
+# Load env file: use ENV_FILE if set, otherwise .env (won't override existing env vars).
+ENV_FILE="${ENV_FILE:-.env}"
+if [[ -f "$ENV_FILE" ]]; then
   set -a
   # shellcheck disable=SC1091
-  source .env
+  source "$ENV_FILE"
   set +a
 fi
 
