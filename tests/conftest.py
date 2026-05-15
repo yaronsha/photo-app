@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.vectordb.base import VectorBackend
+
 # Backend tests don't build the frontend; let app/api/main.py write a stub
 # index.html instead of raising at import. Prod has this var unset and so
 # fails loud if dist/ is missing.
@@ -113,8 +115,6 @@ FAKE_EMBED_VEC = [0.1] * 1536
 @pytest.fixture()
 def pipeline_env(tmp_env, monkeypatch):
     """tmp_env + pre-wired mock caption/embed providers + mock vector backend."""
-    from app.vectordb.base import VectorBackend
-
     mock_caption_provider = MagicMock()
     mock_caption_provider.caption = AsyncMock(return_value=FULL_CAPTION_RESPONSE)
 

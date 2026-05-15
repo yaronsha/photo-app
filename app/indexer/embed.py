@@ -6,22 +6,21 @@ from sqlalchemy import or_, select, update
 from ..config import get_settings
 from ..db import Photo, SessionLocal
 from ..vectordb import get_vector_backend
+from ..vectordb.base import VectorBackend
 from .providers import get_embed_provider
 
 
-def run_embed(reindex: bool = False, limit: int | None = None, vector_db=None) -> int:
+def run_embed(reindex: bool = False, limit: int | None = None, vector_db: VectorBackend | None = None) -> int:
     settings = get_settings()
     provider = get_embed_provider()
-    if vector_db is None:
-        vector_db = get_vector_backend()
-    backend = vector_db
+    vector_db = vector_db or get_vector_backend()
 
     print(f"embed: model={settings.embed_model} reindex={reindex} limit={limit}")
 
     # Validate model consistency (ChromaBackend exposes assert_embed_model;
     # pgvector backend doesn't enforce this at the collection level).
-    if hasattr(backend, "assert_embed_model"):
-        backend.assert_embed_model(settings.embed_model)
+    if hasattr(vector_db, "assert_embed_model"):
+        vector_db.assert_embed_model(settings.embed_model)
 
     # Session opened directly (not via the auto-committing context manager) so
     # the per-row commit below is the single, intentional commit point — keeps
@@ -82,7 +81,7 @@ def run_embed(reindex: bool = False, limit: int | None = None, vector_db=None) -
                 except (ValueError, TypeError):
                     year = None
 
-            backend.upsert(row.id, vec, settings.embed_model, year)
+            vector_db.upsert(row.id, vec, settings.embed_model, year)
 
             now = datetime.now(timezone.utc).isoformat()
             session.execute(
