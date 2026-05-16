@@ -17,6 +17,7 @@ from ..config import get_settings
 from ..db import Photo, get_session, init_schema
 from ..db.upsert import upsert_person, upsert_photo_person
 from ..storage import get_storage
+from ..storage.base import KeyNotFound
 
 
 def _ts_to_iso(timestamp_str: str) -> str | None:
@@ -65,7 +66,24 @@ def run_google_metadata(reindex: bool = False) -> int:
 
             try:
                 data = json.loads(storage.read_bytes(sidecar_key).decode("utf-8"))
-            except Exception:
+            except KeyNotFound:
+                # exists() said yes; gone now — treat as no_sidecar.
+                no_sidecar += 1
+                session.execute(
+                    update(Photo)
+                    .where(Photo.id == photo_id)
+                    .values(google_metadata_indexed_at=now)
+                )
+                continue
+            except json.JSONDecodeError as exc:
+                print(f"  google_metadata bad json {photo_id}: {exc}")
+                skipped += 1
+                continue
+            except Exception as exc:
+                print(
+                    f"  google_metadata TRANSIENT read error {photo_id}: "
+                    f"{type(exc).__name__}: {exc}"
+                )
                 skipped += 1
                 continue
 

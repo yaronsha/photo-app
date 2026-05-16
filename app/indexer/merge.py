@@ -121,11 +121,12 @@ def run_merge(folders: list[Path], dry_run: bool = False) -> dict:
 
             dest_key = f"photos/{year}/{photo_path.name}"
 
-            # Resolve the local path for this key so we can detect filename collisions.
-            dest_local = settings.data_dir / dest_key
-            if not dry_run and dest_local.exists():
+            # Collision check via the storage backend — `storage.exists(key)`
+            # answers correctly for both LocalStorage and R2Storage. A local-FS
+            # check (data_dir / dest_key).exists() would always be False under
+            # R2 and silently overwrite existing objects.
+            if not dry_run and storage.exists(dest_key):
                 dest_key = f"photos/{year}/{photo_id}_{photo_path.name}"
-                dest_local = settings.data_dir / dest_key
 
             if dry_run:
                 print(f"  [dry] {photo_path.name} → {dest_key}")
@@ -139,7 +140,13 @@ def run_merge(folders: list[Path], dry_run: bool = False) -> dict:
                         json.dumps(sidecar_data, ensure_ascii=False, indent=2).encode(),
                         "application/json",
                     )
-                items.append((photo_id, dest_local))
+                # items pass the source Takeout path to scan(prehashed=...) so
+                # EXIF can be read from disk. Scan computes its own key from
+                # data_dir, so this path must be inside data_dir — true for
+                # LocalStorage (dest is under data_dir/photos/), but NOT for
+                # R2Storage (bytes only live in the bucket). For r2 the auto
+                # merge→scan pipeline is not yet supported; see ROADMAP.
+                items.append((photo_id, settings.data_dir / dest_key))
 
             merged += 1
             folder_count += 1

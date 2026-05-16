@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import BinaryIO, Iterator
 
-from .base import Storage
+from .base import KeyNotFound, Storage
 
 
 class LocalStorage(Storage):
@@ -14,10 +14,16 @@ class LocalStorage(Storage):
         return self.root / key
 
     def read_bytes(self, key: str) -> bytes:
-        return self._path(key).read_bytes()
+        try:
+            return self._path(key).read_bytes()
+        except FileNotFoundError as exc:
+            raise KeyNotFound(key) from exc
 
     def open_stream(self, key: str) -> BinaryIO:
-        return self._path(key).open("rb")  # type: ignore[return-value]
+        try:
+            return self._path(key).open("rb")  # type: ignore[return-value]
+        except FileNotFoundError as exc:
+            raise KeyNotFound(key) from exc
 
     def write_bytes(self, key: str, data: bytes, content_type: str | None = None) -> None:
         p = self._path(key)

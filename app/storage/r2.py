@@ -6,7 +6,19 @@ import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
-from .base import Storage
+from .base import KeyNotFound, Storage
+
+
+# S3-compatible "object missing" indicators. HeadObject responses have no
+# body, so botocore can populate the Code field as "" with HTTPStatusCode=404
+# — always check both.
+_MISSING_CODES = {"404", "NoSuchKey", "NotFound", "NoSuchBucket"}
+
+
+def _is_not_found(exc: ClientError) -> bool:
+    code = exc.response.get("Error", {}).get("Code", "")
+    status = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+    return status == 404 or code in _MISSING_CODES
 
 
 class R2Storage(Storage):
@@ -21,10 +33,20 @@ class R2Storage(Storage):
         )
 
     def read_bytes(self, key: str) -> bytes:
-        return self.client.get_object(Bucket=self.bucket, Key=key)["Body"].read()
+        try:
+            return self.client.get_object(Bucket=self.bucket, Key=key)["Body"].read()
+        except ClientError as exc:
+            if _is_not_found(exc):
+                raise KeyNotFound(key) from exc
+            raise
 
     def open_stream(self, key: str) -> BinaryIO:
-        return self.client.get_object(Bucket=self.bucket, Key=key)["Body"]  # type: ignore[return-value]
+        try:
+            return self.client.get_object(Bucket=self.bucket, Key=key)["Body"]  # type: ignore[return-value]
+        except ClientError as exc:
+            if _is_not_found(exc):
+                raise KeyNotFound(key) from exc
+            raise
 
     def write_bytes(self, key: str, data: bytes, content_type: str | None = None) -> None:
         extra = {"ContentType": content_type} if content_type else {}
@@ -35,8 +57,7 @@ class R2Storage(Storage):
             self.client.head_object(Bucket=self.bucket, Key=key)
             return True
         except ClientError as exc:
-            code = exc.response.get("Error", {}).get("Code", "")
-            if code in ("404", "NoSuchKey", "NotFound"):
+            if _is_not_found(exc):
                 return False
             raise
 

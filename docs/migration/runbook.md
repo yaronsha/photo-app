@@ -34,27 +34,35 @@ rclone sync data/sidecars r2:family-photos-prod/sidecars --transfers 16 --progre
 
 ### 1b. photos via re-keying Python script
 
-Run this **before** Alembic migration `0002` rewrites `storage_path` — it depends on `storage_path` still being an absolute filesystem path:
+Run this **before** Alembic migration `0002` rewrites `storage_path` — it depends on `storage_path` still being an absolute filesystem path. The R2 key produced here MUST match what `0002` will write to the DB, i.e. `photos/{year}/{filename}`. Both steps use the same prefix-strip logic, driven by the same `STORAGE_MIGRATION_PREFIX` env var:
 
 ```python
 # scripts/upload_photos_to_r2.py
-import os, mimetypes
+import mimetypes
+import os
 from pathlib import Path
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from app.db.orm import Photo
-from app.storage import get_storage  # R2 backend
+from app.storage import get_storage  # R2 backend selected via env
 
-engine = create_engine(os.environ["SQLITE_PATH"])  # source SQLite (not Postgres yet)
-storage = get_storage(...)  # R2 configured via env
+prefix = os.environ["STORAGE_MIGRATION_PREFIX"].rstrip("/") + "/"
+engine = create_engine(os.environ["SQLITE_PATH"])
+storage = get_storage()
 
 with Session(engine) as s:
     for photo in s.scalars(select(Photo)):
         src = Path(photo.storage_path)  # absolute local path (pre-0002 only)
         if not src.exists():
             print(f"missing: {photo.id}"); continue
-        ext = src.suffix.lower()  # ".jpg" etc.
-        key = f"photos/{photo.id}{ext}"
+        if not photo.storage_path.startswith(prefix):
+            raise SystemExit(
+                f"row {photo.id} storage_path={photo.storage_path!r} "
+                f"does not start with STORAGE_MIGRATION_PREFIX={prefix!r}"
+            )
+        key = photo.storage_path[len(prefix):]  # e.g. "photos/2014/img.jpg"
+        if not key.startswith("photos/"):
+            raise SystemExit(f"row {photo.id} stripped to {key!r}, not under photos/")
         mime = mimetypes.guess_type(src.name)[0] or "application/octet-stream"
         storage.write_bytes(key, src.read_bytes(), content_type=mime)
 ```
@@ -125,29 +133,35 @@ JSONString → JSONB: source `JSONString` TypeDecorator returns Python list/dict
 
 ## Step 3 — Rewrite `Photo.storage_path` → R2 keys
 
-After Step 1b (upload script wrote `photos/{id}{ext}` keys to R2), rewrite the DB column. Use the Alembic migration shipped in tree, which is idempotent and aborts on un-parseable rows:
+After Step 1b uploaded keys of the form `photos/{year}/{filename}` to R2, rewrite the DB column to match. Use the Alembic migration shipped in tree (`migrations/versions/0002_rewrite_storage_path_to_key.py`); it uses the same `STORAGE_MIGRATION_PREFIX` env var as Step 1b, so the keys it computes are guaranteed identical to what was uploaded:
 
 ```bash
 # Local SQLite (your dev DB):
-DATABASE_URL=sqlite:///data/photos.db scripts/migrate.sh upgrade head
+STORAGE_MIGRATION_PREFIX=/Users/yaron/family-photos-app \
+  DATABASE_URL=sqlite:///data/photos.db scripts/migrate.sh upgrade head
 
 # Remote Postgres:
-DATABASE_URL_DIRECT=postgresql+psycopg://...:5432/...?prepare_threshold=0 \
+STORAGE_MIGRATION_PREFIX=/Users/yaron/family-photos-app \
+  DATABASE_URL_DIRECT=postgresql+psycopg://...:5432/...?prepare_threshold=0 \
   scripts/migrate.sh upgrade head
 ```
 
-The migration (`migrations/versions/0002_rewrite_storage_path_to_key.py`) takes each `storage_path` like `/Users/.../photos/2014/img.jpg` and rewrites it to `photos/2014/img.jpg`. Rows already in key form are skipped, so rerunning is safe. Any row whose path does not contain `/photos/` aborts the migration loud so the operator can investigate.
+Properties of the migration:
 
-Note this preserves the *original* extension and year-folder structure from the upload — it does **not** re-key to `photos/{id}{ext}`. If you actually need `photos/{id}{ext}` keys (Step 1b uses that scheme), align the upload script to write to `photos/{year}/{filename}` instead, or write a separate one-shot SQL rewrite *after* `0002` runs.
+- **Idempotent.** Rows already in key form (no leading `/`) are skipped.
+- **Fail-loud.** Any row whose `storage_path` does not start with `STORAGE_MIGRATION_PREFIX` aborts the migration — investigate the row before retrying.
+- **Auto-detect prefix.** If you run without `STORAGE_MIGRATION_PREFIX` and the table contains absolute paths, the migration prints the longest common prefix it observed and aborts; copy that value into the env var and rerun.
+- **No downgrade.** The original absolute prefix is not recorded post-rewrite. Restore from the pre-upgrade backup if you need to revert.
 
 Verify rows match R2 keys exactly (case matters):
+
 ```bash
 rclone lsf r2:family-photos-prod/photos | sort | head -5
 psql "$DATABASE_URL_DIRECT" -c "SELECT storage_path FROM photos ORDER BY id LIMIT 5"
 # every storage_path in DB must exist as R2 key. Spot-check 10 random.
 ```
 
-If extension case differs (`.JPG` vs `.jpg`), align upload script + DB values — both must use same casing.
+If extension case differs (`.JPG` vs `.jpg`), align upload script + DB values — both must use the same casing.
 
 ## Step 4 — Build pgvector embeddings
 

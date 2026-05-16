@@ -13,6 +13,7 @@ from ..config import get_settings
 from ..db import Person, Photo, PhotoPerson, get_session, init_schema
 from ..search.query import search as do_search
 from ..storage import get_storage
+from ..storage.base import KeyNotFound
 
 
 def _validate_iso_date(value: str | None, field: str) -> str | None:
@@ -137,12 +138,16 @@ def thumb(photo_id: str):
     storage = get_storage()
     thumb_key = f"thumbs/{photo_id}.jpg"
 
-    if not storage.exists(thumb_key):
-        src_bytes = storage.read_bytes(db_photo.storage_path)
-        thumb_bytes = _make_thumb(src_bytes)
-        storage.write_bytes(thumb_key, thumb_bytes, "image/jpeg")
-
-    return StreamingResponse(storage.open_stream(thumb_key), media_type="image/jpeg")
+    try:
+        if not storage.exists(thumb_key):
+            src_bytes = storage.read_bytes(db_photo.storage_path)
+            thumb_bytes = _make_thumb(src_bytes)
+            storage.write_bytes(thumb_key, thumb_bytes, "image/jpeg")
+        return StreamingResponse(storage.open_stream(thumb_key), media_type="image/jpeg")
+    except KeyNotFound:
+        raise HTTPException(status_code=404, detail="Photo bytes not found")
+    except Exception:
+        raise HTTPException(status_code=502, detail="Storage backend error")
 
 
 @app.get("/photo/{photo_id}/info")
@@ -190,12 +195,25 @@ def photo(photo_id: str):
     storage = get_storage()
     ext = key.rsplit(".", 1)[-1].lower()
     media_type = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
-    return StreamingResponse(storage.open_stream(key), media_type=media_type)
+    try:
+        return StreamingResponse(storage.open_stream(key), media_type=media_type)
+    except KeyNotFound:
+        raise HTTPException(status_code=404, detail="Photo bytes not found")
+    except Exception:
+        raise HTTPException(status_code=502, detail="Storage backend error")
 
 
+# storage_path is written by our own indexer, but treat it as untrusted in case
+# a row was hand-edited or restored from a stale dump. Reject anything that
+# isn't a clean key under the photos/ namespace.
 def _check_key(key: str | None) -> None:
-    """Reject keys that escape the `photos/` prefix or contain traversal sequences."""
-    if not key or not key.startswith("photos/") or ".." in key.split("/"):
+    if not key:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not key.startswith("photos/"):
+        raise HTTPException(status_code=403, detail="Access denied")
+    if ".." in key.split("/"):
+        raise HTTPException(status_code=403, detail="Access denied")
+    if "\\" in key:
         raise HTTPException(status_code=403, detail="Access denied")
 
 

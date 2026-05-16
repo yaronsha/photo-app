@@ -2,6 +2,16 @@ from abc import ABC, abstractmethod
 from typing import BinaryIO, Iterator
 
 
+class KeyNotFound(Exception):
+    """Raised when a key has no object in the storage backend.
+
+    Backends translate their native missing-object error (FileNotFoundError
+    for LocalStorage, botocore.ClientError with a NoSuchKey/404 code for
+    R2Storage) to this single type so callers can distinguish "object is
+    gone" from "infrastructure failure" portably.
+    """
+
+
 class Storage(ABC):
     @abstractmethod
     def read_bytes(self, key: str) -> bytes: ...

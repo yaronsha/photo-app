@@ -93,6 +93,14 @@ Both go through `app/indexer/providers/__init__.py`. Currently OpenAI only — i
 - Don't add new ChromaDB metadata fields casually — vector DB stays minimal
 - Don't add long transactions in caption/embed — lock contention
 
+## Thumb Step Specifics
+
+- 400×400 JPEG, `quality=85`, EXIF orientation applied via `ImageOps.exif_transpose`
+- Reads source via `storage.read_bytes(photo.storage_path)`; writes `thumbs/{id}.jpg` via `storage.write_bytes`
+- Idempotent: skip when `storage.exists(thumb_key)` unless `--reindex`
+- Split error handling: `KeyNotFound` from source → permanent `skipped`; decode error → permanent `skipped`; storage write error → `transient_errors` (re-run picks it up)
+- API `/thumb/` endpoint can still generate on-demand for misses, but `--step all` includes `thumb` so a freshly indexed corpus has thumbs pre-warmed
+
 ## When Adding a New Step
 
 1. Create `app/indexer/{step}.py` with `run_{step}(reindex: bool = False, ...)`

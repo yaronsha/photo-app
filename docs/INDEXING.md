@@ -8,17 +8,20 @@ Implementation: `app/indexer/cli.py`
 Each step is independent and idempotent. Track progress via `*_indexed_at` columns.
 
 ```
-0. merge            → photos/ + data/sidecars/ (auto-runs scan after)
+0. merge            → storage(photos/{year}/...) + storage(sidecars/{id}.json) (auto-runs scan after)
 1. scan             → EXIF → SQLite
-2. google_metadata  → data/sidecars/{id}.json → SQLite
+2. google_metadata  → storage(sidecars/{id}.json) → SQLite
 3. location         → reverse_geocoder (offline) → SQLite (location_name)
 4. pre_caption      → scan + google_metadata + location (convenience)
 5. caption          → Vision LLM + location hint → SQLite (caption, attributes)
-6. embed            → caption text → ChromaDB vector
-7. faces            → face_recognition → SQLite (Phase 2 — not built)
-8. scores           → LLM/model → SQLite (Phase 3 — not built)
-all                 → 1+2+3+5+6
+6. embed            → caption text → ChromaDB / pgvector
+7. thumb            → 400×400 JPEG → storage(thumbs/{id}.jpg)
+8. faces            → face_recognition → SQLite (Phase 2 — not built)
+9. scores           → LLM/model → SQLite (Phase 3 — not built)
+all                 → 1+2+3+5+6+7
 ```
+
+All filesystem-touching steps (`merge`, `scan`, `google_metadata`, `caption`, `thumb`) go through the `app/storage/` abstraction. The active backend is selected by `STORAGE_BACKEND=local|r2`. Keys are written into `Photo.storage_path` as backend-agnostic strings (`photos/{year}/{filename}`), resolved by the backend at read time.
 
 ## Step Detail
 
@@ -93,11 +96,19 @@ ChromaDB upsert with `metadata={"year": int_or_0}`.
 
 Commits SQLite per-row (`vector_indexed_at = now`) — short transaction → caption process can interleave without locking.
 
-### 7. faces _(Phase 2 — not built)_
+### 7. thumb — `app/indexer/thumb.py`
+
+Pre-generate `thumbs/{photo_id}.jpg` (400×400 JPEG, quality 85) for every indexed photo and write through the storage backend. The API `/thumb/` endpoint has a fallback that generates on demand, but this step warms the cache so the first user request never pays the decode + resize cost.
+
+- Skip if `storage.exists("thumbs/{id}.jpg")` unless `--reindex`
+- Source bytes read via `storage.read_bytes(photo.storage_path)` — works for both local and R2 backends
+- Decode errors → permanent skip; storage write errors → counted as transient (re-run to retry)
+
+### 8. faces _(Phase 2 — not built)_
 
 See [FACE_RECOGNITION.md](../FACE_RECOGNITION.md).
 
-### 8. scores _(Phase 3 — not built)_
+### 9. scores _(Phase 3 — not built)_
 
 `happiness_score`, `aesthetic_score`. Stored in SQLite columns, not ChromaDB.
 
@@ -163,3 +174,4 @@ uv run photos-index --step embed
 | location | `location_name IS NOT NULL` (and GPS present) | `--reindex` |
 | caption | `caption_indexed_at NOT NULL AND caption_schema_version >= N` | `--reindex` or schema bump |
 | embed | `vector_indexed_at IS NOT NULL` | `--reindex` |
+| thumb | `storage.exists("thumbs/{id}.jpg")` | `--reindex` |
