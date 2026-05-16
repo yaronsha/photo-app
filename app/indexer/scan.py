@@ -65,6 +65,14 @@ def _gps_decimal(coord_tag, ref_tag) -> float | None:
         return None
 
 
+def _storage_key_for(path: Path, data_dir: Path) -> str | None:
+    """Return relative key if path is inside data_dir, else None."""
+    try:
+        return str(path.relative_to(data_dir))
+    except ValueError:
+        return None
+
+
 def run_scan(
     reindex: bool = False,
     prehashed: list[tuple[str, Path]] | None = None,
@@ -72,7 +80,7 @@ def run_scan(
     settings = get_settings()
     init_schema()
 
-    photos_dir = settings.photos_dir
+    photos_dir = settings.effective_photos_dir
     if not photos_dir.exists():
         print(f"photos_dir {photos_dir} does not exist — creating empty dir")
         photos_dir.mkdir(parents=True, exist_ok=True)
@@ -104,11 +112,13 @@ def run_scan(
 
             exif = _extract_exif(path)
             now = datetime.now(timezone.utc).isoformat()
+            storage_key = _storage_key_for(path, settings.data_dir)
 
             upsert_photo_scan(
                 session,
                 id=photo_id,
                 storage_path=str(path),
+                storage_key=storage_key,
                 original_filename=path.name,
                 taken_at=exif["taken_at"].isoformat() if exif["taken_at"] else None,
                 lat=exif["lat"],

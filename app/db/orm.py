@@ -23,6 +23,7 @@ class Photo(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     storage_path: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    storage_key: Mapped[str | None] = mapped_column(String, nullable=True)
     original_filename: Mapped[str] = mapped_column(String, nullable=False)
     taken_at: Mapped[str | None] = mapped_column(String, nullable=True)
     location_name: Mapped[str | None] = mapped_column(String, nullable=True)

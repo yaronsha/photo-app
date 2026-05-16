@@ -11,8 +11,13 @@ def _seed_photo(tmp_env, photo_id: str = "abc123def456abc1", filename: str = "te
                 taken_at: str = "2020-01-01T12:00:00+00:00",
                 content_type: str = "photo") -> Path:
     """Create photo file + DB row + initialized schema. Returns path to file."""
+    # photos now live under data_dir/photos/ (LocalStorage root = data_dir)
     photo_path = tmp_env["photos_dir"] / filename
     make_png(photo_path)
+
+    # Compute storage_key relative to data_dir so the storage-based endpoints work.
+    data_dir = tmp_env["data_dir"]
+    storage_key = str(photo_path.relative_to(data_dir))
 
     from app.db import Photo, get_session, init_schema
     init_schema()
@@ -20,6 +25,7 @@ def _seed_photo(tmp_env, photo_id: str = "abc123def456abc1", filename: str = "te
         s.add(Photo(
             id=photo_id,
             storage_path=str(photo_path),
+            storage_key=storage_key,
             original_filename=filename,
             caption="a test photo",
             taken_at=taken_at,
@@ -105,8 +111,8 @@ def test_photo_info_404_for_unknown_id(tmp_env, client):
 
 
 def test_photo_path_traversal_blocked(tmp_env, client):
-    """A row whose storage_path points outside photos_dir should 403."""
-    # Create real file outside photos_dir
+    """A row whose storage_path points outside photos_dir and has no storage_key should 403."""
+    # Create real file outside data_dir (not addressable by LocalStorage)
     outside = tmp_env["data_dir"].parent / "outside.png"
     make_png(outside)
 
@@ -116,6 +122,7 @@ def test_photo_path_traversal_blocked(tmp_env, client):
         s.add(Photo(
             id="evilid000000abcd",
             storage_path=str(outside),
+            storage_key=None,  # no key → falls through to legacy path traversal check
             original_filename="outside.png",
             scan_indexed_at="2020-01-01T00:00:00+00:00",
         ))

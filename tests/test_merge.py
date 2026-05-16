@@ -36,9 +36,9 @@ def test_merge_copies_to_year_folder(tmp_env, tmp_path):
     result = run_merge([takeout])
 
     assert result["merged"] == 1
-    photos_dir = tmp_env["photos_dir"]
+    data_dir = tmp_env["data_dir"]
     # Year from sidecar timestamp 1530000000 = 2018-06-26
-    assert (photos_dir / "2018" / "img.png").exists()
+    assert (data_dir / "photos" / "2018" / "img.png").exists()
 
 
 def test_merge_year_from_folder_name_when_no_sidecar(tmp_env, tmp_path):
@@ -50,7 +50,7 @@ def test_merge_year_from_folder_name_when_no_sidecar(tmp_env, tmp_path):
 
     assert result["merged"] == 1
     assert result["no_sidecar"] == 1
-    assert (tmp_env["photos_dir"] / "2010" / "img.png").exists()
+    assert (tmp_env["data_dir"] / "photos" / "2010" / "img.png").exists()
 
 
 def test_merge_unknown_year_when_no_clue(tmp_env, tmp_path):
@@ -63,7 +63,7 @@ def test_merge_unknown_year_when_no_clue(tmp_env, tmp_path):
     from app.indexer.merge import run_merge
     run_merge([takeout])
 
-    assert (tmp_env["photos_dir"] / "unknown" / "img.png").exists()
+    assert (tmp_env["data_dir"] / "photos" / "unknown" / "img.png").exists()
 
 
 def test_merge_dedup_within_run(tmp_env, tmp_path):
@@ -116,7 +116,7 @@ def test_merge_dry_run_copies_nothing(tmp_env, tmp_path):
     result = run_merge([takeout], dry_run=True)
 
     assert result["merged"] == 1  # counted, but...
-    assert not (tmp_env["photos_dir"] / "2020" / "img.png").exists()  # ...not copied
+    assert not (tmp_env["data_dir"] / "photos" / "2020" / "img.png").exists()  # ...not copied
     assert not (tmp_env["data_dir"] / "sidecars").exists()
 
 
@@ -168,7 +168,7 @@ def test_merge_handles_filename_collision_in_year_folder(tmp_env, tmp_path):
     result = run_merge([takeout])
 
     assert result["merged"] == 2
-    year_dir = tmp_env["photos_dir"] / "2020"
+    year_dir = tmp_env["data_dir"] / "photos" / "2020"
     files = sorted(p.name for p in year_dir.iterdir())
     assert "img.png" in files
     # Second file should be renamed with photo_id prefix

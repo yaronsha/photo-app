@@ -15,6 +15,7 @@ from .orm import Base
 
 # Columns historically ALTERed-in on old DBs. Kept for one release.
 PHOTOS_ATTRIBUTE_COLUMNS: list[tuple[str, str]] = [
+    ("storage_key", "TEXT"),
     ("activities", "TEXT"),
     ("content_type", "TEXT"),
     ("subject_type", "TEXT"),

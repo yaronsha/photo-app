@@ -5,6 +5,7 @@ from pathlib import Path
 from sqlalchemy import or_, select, update
 
 from ..db import Photo, get_session
+from ..storage import get_storage
 from .providers import get_caption_provider
 
 DEFAULT_LIMIT = 50
@@ -18,10 +19,11 @@ def run_caption(limit: int = DEFAULT_LIMIT, reindex: bool = False) -> int:
 
 async def _run_caption_async(limit: int, reindex: bool) -> int:
     provider = get_caption_provider()
+    storage = get_storage()
 
     with get_session() as session:
         stmt = select(
-            Photo.id, Photo.storage_path, Photo.lat, Photo.lng, Photo.location_name
+            Photo.id, Photo.storage_path, Photo.storage_key, Photo.lat, Photo.lng, Photo.location_name
         ).where(Photo.scan_indexed_at.is_not(None))
         if not reindex:
             stmt = stmt.where(
@@ -41,9 +43,19 @@ async def _run_caption_async(limit: int, reindex: bool) -> int:
 
     async def process(row):
         nonlocal captioned, skipped
-        path = Path(row.storage_path)
-        if not path.exists():
-            print(f"  missing file: {path} — skip")
+
+        try:
+            if row.storage_key:
+                image_data = storage.read_bytes(row.storage_key)
+            else:
+                path = Path(row.storage_path)
+                if not path.exists():
+                    print(f"  missing file: {path} — skip")
+                    skipped += 1
+                    return
+                image_data = path.read_bytes()
+        except Exception as e:
+            print(f"  error reading {row.id}: {e}")
             skipped += 1
             return
 
@@ -53,9 +65,9 @@ async def _run_caption_async(limit: int, reindex: bool) -> int:
 
         async with semaphore:
             try:
-                result = await provider.caption(path, location_hint=location_hint)
+                result = await provider.caption(image_data, location_hint=location_hint)
             except Exception as e:
-                print(f"  error {path.name}: {e}")
+                print(f"  error captioning {row.id}: {e}")
                 skipped += 1
                 return
 

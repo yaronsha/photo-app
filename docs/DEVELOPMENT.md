@@ -54,7 +54,7 @@ cd app/web && npm run dev
 uv run photos-index --step <step> [--limit N] [--reindex]
 ```
 
-Steps: `merge | scan | google_metadata | location | pre_caption | caption | embed | all`.
+Steps: `merge | scan | google_metadata | location | pre_caption | caption | embed | thumb | all`.
 See [INDEXING.md](INDEXING.md) for full step detail.
 
 ### Tests
@@ -155,12 +155,26 @@ family-photos-app/
 | Field | Notes |
 |---|---|
 | `family_name` | Used in UI header |
-| `data_dir`, `photos_dir` | Resolved relative to `config.json` if not absolute |
+| `data_dir` | Root for DB, thumbs, sidecars, and new photos. Resolved relative to `config.json` if not absolute |
+| `photos_dir` | Optional. Legacy photo root; defaults to `data_dir/photos` if omitted |
 | `caption_model` | OpenAI vision model. `gpt-4.1-nano` is current default (cheap) |
 | `embed_model` | Locked once corpus is embedded — change requires `data/chroma/` reset |
 | `face_tolerance` | (Phase 2) face_recognition distance threshold (lower = stricter) |
 | `people[]` | `{id, name}`, optionally `family_id` |
 | `google_name_aliases` | Map Google Photos free-text name (lowercase, Hebrew OK) → `person_id` |
+
+**Env vars (runtime):**
+
+| Var | Default | Notes |
+|---|---|---|
+| `STORAGE_BACKEND` | `local` | `local` (filesystem under `data_dir`) or `r2` (Cloudflare R2) |
+| `R2_ACCOUNT_ID` | — | Required when `STORAGE_BACKEND=r2` |
+| `R2_ACCESS_KEY_ID` | — | Required when `STORAGE_BACKEND=r2` |
+| `R2_SECRET_ACCESS_KEY` | — | Required when `STORAGE_BACKEND=r2` |
+| `R2_BUCKET` | — | Required when `STORAGE_BACKEND=r2` |
+| `VECTOR_BACKEND` | `chroma` | `chroma` (local) or `pgvector` (Supabase Postgres) |
+| `DATABASE_URL` | SQLite path | Override for Postgres |
+| `OPENAI_API_KEY` | — | Required for caption + embed steps |
 
 ## Common Tasks
 
