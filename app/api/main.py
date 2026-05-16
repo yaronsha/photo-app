@@ -65,7 +65,7 @@ _ensure_dist()
 def startup():
     init_schema()
     settings = get_settings()
-    settings.effective_photos_dir.mkdir(parents=True, exist_ok=True)
+    (settings.data_dir / "photos").mkdir(parents=True, exist_ok=True)
     (settings.data_dir / "thumbs").mkdir(parents=True, exist_ok=True)
 
 
@@ -133,15 +133,12 @@ def thumb(photo_id: str):
     if db_photo is None:
         raise HTTPException(status_code=404, detail="Photo not found")
 
+    _check_key(db_photo.storage_path)
     storage = get_storage()
     thumb_key = f"thumbs/{photo_id}.jpg"
 
     if not storage.exists(thumb_key):
-        if db_photo.storage_key:
-            src_bytes = storage.read_bytes(db_photo.storage_key)
-        else:
-            src_path = _resolve_legacy_photo_path(db_photo)
-            src_bytes = src_path.read_bytes()
+        src_bytes = storage.read_bytes(db_photo.storage_path)
         thumb_bytes = _make_thumb(src_bytes)
         storage.write_bytes(thumb_key, thumb_bytes, "image/jpeg")
 
@@ -188,38 +185,18 @@ def photo(photo_id: str):
     if db_photo is None:
         raise HTTPException(status_code=404, detail="Photo not found")
 
-    if db_photo.storage_key:
-        storage = get_storage()
-        ext = db_photo.storage_key.rsplit(".", 1)[-1].lower()
-        media_type = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
-        return StreamingResponse(storage.open_stream(db_photo.storage_key), media_type=media_type)
-
-    # Legacy path: absolute storage_path with traversal guard.
-    src_path = _resolve_legacy_photo_path(db_photo)
-    suffix = src_path.suffix.lower()
-    media_type = "image/jpeg" if suffix in (".jpg", ".jpeg") else f"image/{suffix.lstrip('.')}"
-    return FileResponse(str(src_path), media_type=media_type)
+    key = db_photo.storage_path
+    _check_key(key)
+    storage = get_storage()
+    ext = key.rsplit(".", 1)[-1].lower()
+    media_type = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
+    return StreamingResponse(storage.open_stream(key), media_type=media_type)
 
 
-def _resolve_legacy_photo_path(db_photo: Photo) -> Path:
-    """Return a safe Path for photos that have storage_path but no storage_key."""
-    storage_path_str = db_photo.storage_path if db_photo else None
-
-    if storage_path_str is None:
-        raise HTTPException(status_code=404, detail="Photo not found")
-
-    settings = get_settings()
-    storage = Path(storage_path_str)
-    real_storage = Path(os.path.realpath(storage))
-    real_photos = Path(os.path.realpath(settings.effective_photos_dir))
-
-    if real_storage != real_photos and real_photos not in real_storage.parents:
+def _check_key(key: str | None) -> None:
+    """Reject keys that escape the `photos/` prefix or contain traversal sequences."""
+    if not key or not key.startswith("photos/") or ".." in key.split("/"):
         raise HTTPException(status_code=403, detail="Access denied")
-
-    if not storage.exists():
-        raise HTTPException(status_code=404, detail="File not found on disk")
-
-    return storage
 
 
 def _make_thumb(src_bytes: bytes) -> bytes:

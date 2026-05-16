@@ -13,7 +13,7 @@ def _seed(rows: list[tuple]):
             csv = rest[0] if rest else 1
             s.add(Photo(
                 id=pid,
-                storage_path=f"/tmp/{pid}.jpg",
+                storage_path=f"photos/{pid}.jpg",
                 original_filename=f"{pid}.jpg",
                 caption=caption,
                 activities=activities,
@@ -78,7 +78,7 @@ def test_embed_text_omits_tags(tmp_env):
     with get_session() as s:
         s.add(Photo(
             id="p1",
-            storage_path="/tmp/p1.jpg",
+            storage_path="photos/p1.jpg",
             original_filename="p1.jpg",
             caption="two children running",
             tags=["zebrazebra", "yellowbananatag", "purpleorchid"],

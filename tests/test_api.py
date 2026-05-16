@@ -11,21 +11,19 @@ def _seed_photo(tmp_env, photo_id: str = "abc123def456abc1", filename: str = "te
                 taken_at: str = "2020-01-01T12:00:00+00:00",
                 content_type: str = "photo") -> Path:
     """Create photo file + DB row + initialized schema. Returns path to file."""
-    # photos now live under data_dir/photos/ (LocalStorage root = data_dir)
     photo_path = tmp_env["photos_dir"] / filename
     make_png(photo_path)
 
-    # Compute storage_key relative to data_dir so the storage-based endpoints work.
+    # storage_path is a key relative to data_dir (LocalStorage root).
     data_dir = tmp_env["data_dir"]
-    storage_key = str(photo_path.relative_to(data_dir))
+    key = str(photo_path.relative_to(data_dir))
 
     from app.db import Photo, get_session, init_schema
     init_schema()
     with get_session() as s:
         s.add(Photo(
             id=photo_id,
-            storage_path=str(photo_path),
-            storage_key=storage_key,
+            storage_path=key,
             original_filename=filename,
             caption="a test photo",
             taken_at=taken_at,
@@ -110,24 +108,35 @@ def test_photo_info_404_for_unknown_id(tmp_env, client):
     assert resp.status_code == 404
 
 
-def test_photo_path_traversal_blocked(tmp_env, client):
-    """A row whose storage_path points outside photos_dir and has no storage_key should 403."""
-    # Create real file outside data_dir (not addressable by LocalStorage)
-    outside = tmp_env["data_dir"].parent / "outside.png"
-    make_png(outside)
-
+def test_photo_bad_key_prefix_rejected(tmp_env, client):
+    """A row whose storage_path key does not start with 'photos/' should 403."""
     from app.db import Photo, get_session, init_schema
     init_schema()
     with get_session() as s:
         s.add(Photo(
             id="evilid000000abcd",
-            storage_path=str(outside),
-            storage_key=None,  # no key → falls through to legacy path traversal check
-            original_filename="outside.png",
+            storage_path="../../../etc/passwd",  # not under photos/ prefix
+            original_filename="outside",
             scan_indexed_at="2020-01-01T00:00:00+00:00",
         ))
 
     resp = client.get("/photo/evilid000000abcd")
+    assert resp.status_code == 403
+
+
+def test_photo_traversal_segment_rejected(tmp_env, client):
+    """A key containing a '..' path segment should 403 even with photos/ prefix."""
+    from app.db import Photo, get_session, init_schema
+    init_schema()
+    with get_session() as s:
+        s.add(Photo(
+            id="trav123456abcdef",
+            storage_path="photos/../../etc/passwd",
+            original_filename="trav",
+            scan_indexed_at="2020-01-01T00:00:00+00:00",
+        ))
+
+    resp = client.get("/photo/trav123456abcdef")
     assert resp.status_code == 403
 
 

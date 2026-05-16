@@ -138,7 +138,6 @@ family-photos-app/
 {
   "family_name":   "Shapira",
   "data_dir":      "./data",
-  "photos_dir":    "./photos",
   "caption_model": "gpt-4.1-nano",
   "embed_model":   "text-embedding-3-small",
   "face_tolerance": 0.5,
@@ -152,11 +151,12 @@ family-photos-app/
 }
 ```
 
+A legacy `photos_dir` key is ignored if present (Pydantic `extra="ignore"`), so existing configs do not need a hand-edit, but it can be removed for tidiness.
+
 | Field | Notes |
 |---|---|
 | `family_name` | Used in UI header |
-| `data_dir` | Root for DB, thumbs, sidecars, and new photos. Resolved relative to `config.json` if not absolute |
-| `photos_dir` | Optional. Legacy photo root; defaults to `data_dir/photos` if omitted |
+| `data_dir` | Single filesystem root: DB, photos (`data_dir/photos/`), thumbs, sidecars, anchors. Resolved relative to `config.json` if not absolute |
 | `caption_model` | OpenAI vision model. `gpt-4.1-nano` is current default (cheap) |
 | `embed_model` | Locked once corpus is embedded — change requires `data/chroma/` reset |
 | `face_tolerance` | (Phase 2) face_recognition distance threshold (lower = stricter) |

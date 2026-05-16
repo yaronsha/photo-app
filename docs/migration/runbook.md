@@ -34,6 +34,8 @@ rclone sync data/sidecars r2:family-photos-prod/sidecars --transfers 16 --progre
 
 ### 1b. photos via re-keying Python script
 
+Run this **before** Alembic migration `0002` rewrites `storage_path` — it depends on `storage_path` still being an absolute filesystem path:
+
 ```python
 # scripts/upload_photos_to_r2.py
 import os, mimetypes
@@ -48,7 +50,7 @@ storage = get_storage(...)  # R2 configured via env
 
 with Session(engine) as s:
     for photo in s.scalars(select(Photo)):
-        src = Path(photo.storage_path)  # absolute local path
+        src = Path(photo.storage_path)  # absolute local path (pre-0002 only)
         if not src.exists():
             print(f"missing: {photo.id}"); continue
         ext = src.suffix.lower()  # ".jpg" etc.
@@ -123,15 +125,20 @@ JSONString → JSONB: source `JSONString` TypeDecorator returns Python list/dict
 
 ## Step 3 — Rewrite `Photo.storage_path` → R2 keys
 
-After Step 1b (upload script wrote `photos/{id}{ext}` keys to R2), update `storage_path` to match:
+After Step 1b (upload script wrote `photos/{id}{ext}` keys to R2), rewrite the DB column. Use the Alembic migration shipped in tree, which is idempotent and aborts on un-parseable rows:
 
-```sql
--- Supabase SQL editor, after Step 2 + 1b complete
-UPDATE photos
-SET storage_path = 'photos/' || id || lower(
-  substring(storage_path from '\.[^.]+$')   -- extract original ext (incl. dot)
-);
+```bash
+# Local SQLite (your dev DB):
+DATABASE_URL=sqlite:///data/photos.db scripts/migrate.sh upgrade head
+
+# Remote Postgres:
+DATABASE_URL_DIRECT=postgresql+psycopg://...:5432/...?prepare_threshold=0 \
+  scripts/migrate.sh upgrade head
 ```
+
+The migration (`migrations/versions/0002_rewrite_storage_path_to_key.py`) takes each `storage_path` like `/Users/.../photos/2014/img.jpg` and rewrites it to `photos/2014/img.jpg`. Rows already in key form are skipped, so rerunning is safe. Any row whose path does not contain `/photos/` aborts the migration loud so the operator can investigate.
+
+Note this preserves the *original* extension and year-folder structure from the upload — it does **not** re-key to `photos/{id}{ext}`. If you actually need `photos/{id}{ext}` keys (Step 1b uses that scheme), align the upload script to write to `photos/{year}/{filename}` instead, or write a separate one-shot SQL rewrite *after* `0002` runs.
 
 Verify rows match R2 keys exactly (case matters):
 ```bash
@@ -140,7 +147,7 @@ psql "$DATABASE_URL_DIRECT" -c "SELECT storage_path FROM photos ORDER BY id LIMI
 # every storage_path in DB must exist as R2 key. Spot-check 10 random.
 ```
 
-If extension case differs (`.JPG` vs `.jpg`), align upload script + SQL update — both must use same casing. The upload script in Step 1b normalizes to `src.suffix.lower()`; the SQL `lower()` mirrors this.
+If extension case differs (`.JPG` vs `.jpg`), align upload script + DB values — both must use same casing.
 
 ## Step 4 — Build pgvector embeddings
 

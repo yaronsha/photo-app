@@ -1,7 +1,5 @@
 """Pre-generate thumbnails for all indexed photos and store via storage backend."""
 import io
-from datetime import datetime, timezone
-from pathlib import Path
 
 from PIL import Image, ImageOps
 from sqlalchemy import select
@@ -27,7 +25,7 @@ def run_thumb(reindex: bool = False, limit: int | None = None) -> int:
     storage = get_storage()
 
     with get_session() as session:
-        stmt = select(Photo.id, Photo.storage_path, Photo.storage_key).where(
+        stmt = select(Photo.id, Photo.storage_path).where(
             Photo.scan_indexed_at.is_not(None)
         )
         if limit is not None and limit > 0:
@@ -44,15 +42,11 @@ def run_thumb(reindex: bool = False, limit: int | None = None) -> int:
             continue
 
         try:
-            if row.storage_key:
-                src_bytes = storage.read_bytes(row.storage_key)
-            else:
-                path = Path(row.storage_path)
-                if not path.exists():
-                    print(f"  missing: {row.storage_path} — skip")
-                    skipped += 1
-                    continue
-                src_bytes = path.read_bytes()
+            src_bytes = storage.read_bytes(row.storage_path)
+        except FileNotFoundError:
+            print(f"  missing: {row.storage_path} — skip")
+            skipped += 1
+            continue
         except Exception as e:
             print(f"  read error {row.id}: {e}")
             skipped += 1

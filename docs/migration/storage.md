@@ -23,19 +23,18 @@ Key prefixes:
 
 ## Critical schema change
 
-`Photo.storage_path` today = absolute filesystem path. After migration = **object key only** (e.g. `"photos/abc123.jpg"`). Backend-agnostic.
+`Photo.storage_path` today = absolute filesystem path. After Phase 2 = **object key only** (e.g. `"photos/abc123.jpg"`). Backend-agnostic.
 
-**Two-column variant (safer):** instead of mutating `storage_path` semantics in place, add a new nullable column `storage_key TEXT` in Phase 1 (Alembic migration). Phase 2 populates it from current `storage_path` via the Step 1b upload script. App code reads `storage_key` exclusively. `storage_path` column kept for one cycle as audit trail, dropped in a follow-up migration. Avoids ambiguity during the transition window.
+Same column, mutated semantics. An earlier draft proposed a parallel `storage_key` column ("two-column variant") for transition safety. Rejected because a given DB only ever holds rows from one backend (prod = R2-only, local dev = local-only or R2-only — never a mix), so the cushion never pays off, and the runbook's existing one-shot rewrite (`UPDATE photos SET storage_path = ...`) maps cleanly to a regular Alembic migration.
 
-Path traversal guard (`app/api/main.py:176-195`) → key prefix guard:
+Alembic revision `migrations/versions/0002_rewrite_storage_path_to_key.py` performs the rewrite (idempotent — rows already in key form are skipped). Run it once against each DB (local SQLite + remote Postgres). It aborts loudly if any row's `storage_path` cannot be parsed back to a `photos/...` key, so a partial rewrite cannot leak through. No downgrade — restore from backup.
+
+Path traversal guard (`app/api/main.py`) → key prefix + segment guard:
 
 ```python
-def _resolve_photo_key(photo_id: str, session) -> str:
-    photo = session.get(Photo, photo_id)
-    key = photo.storage_key if photo else None  # or storage_path post-cutover
-    if not key or not key.startswith("photos/"):
-        raise HTTPException(404)
-    return key
+def _check_key(key: str | None) -> None:
+    if not key or not key.startswith("photos/") or ".." in key.split("/"):
+        raise HTTPException(status_code=403, detail="Access denied")
 ```
 
 ## Storage interface
@@ -177,12 +176,14 @@ return StreamingResponse(storage.open_stream(key), media_type="image/jpeg")
 
 ### Config
 
-`app/config.py:22,33-53`: keep `photos_dir` + `data_dir` only as `LocalStorage` root. New optional fields:
+`app/config.py`: `data_dir` is the only filesystem root — `LocalStorage(data_dir)` resolves keys against it. The deprecated `photos_dir` field is no longer read by the model (`extra="ignore"`), so leaving it in an existing `config.json` is harmless but it can also just be deleted. New optional fields:
 ```python
 storage_backend: str = "local"
-r2_account_id: str | None = None
-# ... etc
+# R2 credentials are read from env, not config.json:
+#   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET
 ```
+
+For local dev: photos must physically live under `data_dir/photos/{year}/...`. Pre-Phase-2 repos stored them at the top level (`./photos/{year}/...`); migrate with `mv ./photos ./data/photos` (same-volume rename — atomic). The `0002` Alembic migration only rewrites the DB value; the on-disk move is a separate one-time step.
 
 ## Tests
 
@@ -209,7 +210,7 @@ endpoint = https://<acct>.r2.cloudflarestorage.com
 region = auto
 ```
 
-After upload: backfill SQLite/Postgres `Photo.storage_path` from absolute path → `photos/{id}.{ext}` key (one-shot SQL migration script).
+After upload: run Alembic migration `0002_rewrite_storage_path_to_key.py` (already in tree) against the target DB to rewrite `Photo.storage_path` from absolute path to `photos/{year}/{filename}` key. The migration is idempotent — rerunning is a no-op once the column is in key form.
 
 ## Verification
 

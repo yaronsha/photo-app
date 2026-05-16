@@ -1,6 +1,5 @@
 import asyncio
 from datetime import datetime, timezone
-from pathlib import Path
 
 from sqlalchemy import or_, select, update
 
@@ -23,7 +22,7 @@ async def _run_caption_async(limit: int, reindex: bool) -> int:
 
     with get_session() as session:
         stmt = select(
-            Photo.id, Photo.storage_path, Photo.storage_key, Photo.lat, Photo.lng, Photo.location_name
+            Photo.id, Photo.storage_path, Photo.lat, Photo.lng, Photo.location_name
         ).where(Photo.scan_indexed_at.is_not(None))
         if not reindex:
             stmt = stmt.where(
@@ -45,15 +44,11 @@ async def _run_caption_async(limit: int, reindex: bool) -> int:
         nonlocal captioned, skipped
 
         try:
-            if row.storage_key:
-                image_data = storage.read_bytes(row.storage_key)
-            else:
-                path = Path(row.storage_path)
-                if not path.exists():
-                    print(f"  missing file: {path} — skip")
-                    skipped += 1
-                    return
-                image_data = path.read_bytes()
+            image_data = storage.read_bytes(row.storage_path)
+        except FileNotFoundError:
+            print(f"  missing: {row.storage_path} — skip")
+            skipped += 1
+            return
         except Exception as e:
             print(f"  error reading {row.id}: {e}")
             skipped += 1

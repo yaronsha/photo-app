@@ -96,7 +96,7 @@ def test_merge_dedup_against_existing_db(tmp_env, tmp_path):
     with get_session() as s:
         s.add(Photo(
             id=photo_id,
-            storage_path="/old/path/img.png",
+            storage_path="photos/2020/img.png",
             original_filename="img.png",
         ))
 

@@ -44,10 +44,11 @@ def make_png(path: Path) -> None:
 
 @pytest.fixture()
 def tmp_env(tmp_path, monkeypatch):
-    """Isolated photos_dir + data_dir + config.json + OPENAI_API_KEY env."""
+    """Isolated data_dir + photos subdir + config.json + OPENAI_API_KEY env."""
     data_dir = tmp_path / "data"
     data_dir.mkdir()
-    # photos live under data_dir so LocalStorage(root=data_dir) can serve them
+    # photos live under data_dir so LocalStorage(root=data_dir) addresses them
+    # via key "photos/<filename>"
     photos_dir = data_dir / "photos"
     photos_dir.mkdir()
 

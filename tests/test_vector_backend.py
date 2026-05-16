@@ -24,7 +24,7 @@ def _seed_pg_photo(session_factory, photo_id: str) -> None:
     with session_factory() as s:
         s.merge(Photo(
             id=photo_id,
-            storage_path=f"/tmp/{photo_id}.jpg",
+            storage_path=f"photos/{photo_id}.jpg",
             original_filename=f"{photo_id}.jpg",
         ))
         s.commit()

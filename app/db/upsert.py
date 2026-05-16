@@ -27,19 +27,21 @@ def upsert_photo_scan(
     *,
     id: str,
     storage_path: str,
-    storage_key: str | None = None,
     original_filename: str,
     taken_at: str | None,
     lat: float | None,
     lng: float | None,
     scan_indexed_at: str,
 ) -> None:
-    """Mirrors the previous scan.py ON CONFLICT(id) DO UPDATE."""
+    """Mirrors the previous scan.py ON CONFLICT(id) DO UPDATE.
+
+    `storage_path` is a backend-agnostic key (e.g. "photos/2018/img.jpg"),
+    not an absolute filesystem path.
+    """
     insert = _insert(session)
     stmt = insert(Photo).values(
         id=id,
         storage_path=storage_path,
-        storage_key=storage_key,
         original_filename=original_filename,
         taken_at=taken_at,
         lat=lat,
@@ -50,7 +52,6 @@ def upsert_photo_scan(
         index_elements=[Photo.id],
         set_={
             "storage_path": stmt.excluded.storage_path,
-            "storage_key": stmt.excluded.storage_key,
             "taken_at": stmt.excluded.taken_at,
             "lat": stmt.excluded.lat,
             "lng": stmt.excluded.lng,

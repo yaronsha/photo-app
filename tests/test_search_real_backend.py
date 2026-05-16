@@ -27,7 +27,7 @@ def _seed_sqlite_photo(photos_dir, photo_id: str = PHOTO_ID) -> None:
     with get_session() as s:
         s.add(Photo(
             id=photo_id,
-            storage_path=str(photo_path),
+            storage_path="photos/beach.jpg",
             original_filename="beach.jpg",
             caption="sunny beach day",
             taken_at=TAKEN_AT,
@@ -101,7 +101,7 @@ def _seed_pg_photo_for_search(session_factory, photo_id: str) -> None:
     with session_factory() as s:
         s.merge(PgPhoto(
             id=photo_id,
-            storage_path=f"/tmp/{photo_id}.jpg",
+            storage_path=f"photos/{photo_id}.jpg",
             original_filename=f"{photo_id}.jpg",
         ))
         s.commit()

@@ -22,8 +22,11 @@ class Photo(Base):
     __tablename__ = "photos"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    # Backend-agnostic key, e.g. "photos/2018/img.jpg". Resolved by the
+    # active Storage backend: LocalStorage joins it to data_dir, R2Storage
+    # treats it as an object key. Pre-Phase-2 DBs stored absolute filesystem
+    # paths in this column; the 0002 Alembic migration rewrites them to keys.
     storage_path: Mapped[str] = mapped_column(String, nullable=False, unique=True)
-    storage_key: Mapped[str | None] = mapped_column(String, nullable=True)
     original_filename: Mapped[str] = mapped_column(String, nullable=False)
     taken_at: Mapped[str | None] = mapped_column(String, nullable=True)
     location_name: Mapped[str | None] = mapped_column(String, nullable=True)
