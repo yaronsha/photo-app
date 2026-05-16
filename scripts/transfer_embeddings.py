@@ -69,9 +69,12 @@ def transfer(chroma_path: str, pg_url: str, batch_size: int) -> None:
             offset=offset,
             include=["embeddings", "metadatas"],
         )
-        ids = batch.get("ids") or []
-        embs = batch.get("embeddings") or []
-        metas = batch.get("metadatas") or []
+        ids = batch.get("ids")
+        embs = batch.get("embeddings")
+        metas = batch.get("metadatas")
+        ids = list(ids) if ids is not None else []
+        embs = list(embs) if embs is not None else []
+        metas = list(metas) if metas is not None else []
         if not ids:
             break
 
