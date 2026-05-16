@@ -23,12 +23,12 @@ jobs:
 Each indexer step has three layers:
 
 ```
-┌─ Driver layer ──────────────────────────────────────┐
+┌─ Driver layer ──────────────────────────────────────────┐
 │  cli.py            (loops + calls step.run)         │
 │  api/index_batch.py (HTTP handler, calls step.run)  │
-└────────────────────┬────────────────────────────────┘
+└────────────────────┬────────────────────────┘
                      │
-┌─ Pure step layer ──▼─────────────┐
+┌─ Pure step layer ──▼──────────────────┐
 │  step.run(session, ids, settings) │ ← processes given IDs, returns
 │  step.pending(session, limit)     │ ← returns next IDs needing this step
 └──────────────────────────────────┘

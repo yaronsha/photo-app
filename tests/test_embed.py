@@ -1,8 +1,9 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from sqlalchemy import update
 
 from app.db import Photo, get_session, init_schema
+from app.vectordb.base import VectorBackend
 
 
 def _seed(rows: list[tuple]):
@@ -34,23 +35,18 @@ def test_embed_skips_documents(tmp_env):
     mock_provider = MagicMock()
     mock_provider.embed.return_value = [0.1] * 1536
 
-    mock_collection = MagicMock()
+    mock_vector_db = MagicMock(spec=VectorBackend)
 
     import app.indexer.embed as embed_mod
-    import app.chroma as chroma_mod
+    from unittest.mock import patch
 
-    with (
-        patch.object(embed_mod, "get_embed_provider", return_value=mock_provider),
-        patch.object(embed_mod, "get_collection", return_value=mock_collection),
-        patch.object(embed_mod, "assert_embed_model"),
-        patch.object(chroma_mod, "get_collection", return_value=mock_collection),
-    ):
-        count = embed_mod.run_embed()
+    with patch.object(embed_mod, "get_embed_provider", return_value=mock_provider):
+        count = embed_mod.run_embed(vector_db=mock_vector_db)
 
     assert count == 1
-    upsert_calls = mock_collection.upsert.call_args_list
-    upserted_ids = [call.kwargs["ids"][0] for call in upsert_calls]
-    assert upserted_ids == ["p_photo"]
+    assert mock_vector_db.upsert.call_count == 1
+    upserted_id = mock_vector_db.upsert.call_args.args[0]
+    assert upserted_id == "p_photo"
 
 
 def test_embed_text_includes_activities(tmp_env):
@@ -61,18 +57,13 @@ def test_embed_text_includes_activities(tmp_env):
     mock_provider = MagicMock()
     mock_provider.embed.return_value = [0.1] * 1536
 
-    mock_collection = MagicMock()
+    mock_vector_db = MagicMock(spec=VectorBackend)
 
     import app.indexer.embed as embed_mod
-    import app.chroma as chroma_mod
+    from unittest.mock import patch
 
-    with (
-        patch.object(embed_mod, "get_embed_provider", return_value=mock_provider),
-        patch.object(embed_mod, "get_collection", return_value=mock_collection),
-        patch.object(embed_mod, "assert_embed_model"),
-        patch.object(chroma_mod, "get_collection", return_value=mock_collection),
-    ):
-        embed_mod.run_embed()
+    with patch.object(embed_mod, "get_embed_provider", return_value=mock_provider):
+        embed_mod.run_embed(vector_db=mock_vector_db)
 
     assert mock_provider.embed.call_count == 1
     text = mock_provider.embed.call_args.args[0]
@@ -100,18 +91,13 @@ def test_embed_text_omits_tags(tmp_env):
 
     mock_provider = MagicMock()
     mock_provider.embed.return_value = [0.1] * 1536
-    mock_collection = MagicMock()
+    mock_vector_db = MagicMock(spec=VectorBackend)
 
     import app.indexer.embed as embed_mod
-    import app.chroma as chroma_mod
+    from unittest.mock import patch
 
-    with (
-        patch.object(embed_mod, "get_embed_provider", return_value=mock_provider),
-        patch.object(embed_mod, "get_collection", return_value=mock_collection),
-        patch.object(embed_mod, "assert_embed_model"),
-        patch.object(chroma_mod, "get_collection", return_value=mock_collection),
-    ):
-        embed_mod.run_embed()
+    with patch.object(embed_mod, "get_embed_provider", return_value=mock_provider):
+        embed_mod.run_embed(vector_db=mock_vector_db)
 
     text = mock_provider.embed.call_args.args[0]
     assert "two children running" in text
@@ -127,18 +113,13 @@ def test_embed_reruns_when_caption_version_advances(tmp_env):
 
     mock_provider = MagicMock()
     mock_provider.embed.return_value = [0.1] * 1536
-    mock_collection = MagicMock()
+    mock_vector_db = MagicMock(spec=VectorBackend)
 
     import app.indexer.embed as embed_mod
-    import app.chroma as chroma_mod
+    from unittest.mock import patch
 
-    with (
-        patch.object(embed_mod, "get_embed_provider", return_value=mock_provider),
-        patch.object(embed_mod, "get_collection", return_value=mock_collection),
-        patch.object(embed_mod, "assert_embed_model"),
-        patch.object(chroma_mod, "get_collection", return_value=mock_collection),
-    ):
-        count = embed_mod.run_embed()
+    with patch.object(embed_mod, "get_embed_provider", return_value=mock_provider):
+        count = embed_mod.run_embed(vector_db=mock_vector_db)
 
     assert count == 1  # re-embedded because embed_schema_version(1) < caption_schema_version(2)
 
@@ -151,17 +132,12 @@ def test_embed_skips_when_already_current(tmp_env):
 
     mock_provider = MagicMock()
     mock_provider.embed.return_value = [0.1] * 1536
-    mock_collection = MagicMock()
+    mock_vector_db = MagicMock(spec=VectorBackend)
 
     import app.indexer.embed as embed_mod
-    import app.chroma as chroma_mod
+    from unittest.mock import patch
 
-    with (
-        patch.object(embed_mod, "get_embed_provider", return_value=mock_provider),
-        patch.object(embed_mod, "get_collection", return_value=mock_collection),
-        patch.object(embed_mod, "assert_embed_model"),
-        patch.object(chroma_mod, "get_collection", return_value=mock_collection),
-    ):
-        count = embed_mod.run_embed()
+    with patch.object(embed_mod, "get_embed_provider", return_value=mock_provider):
+        count = embed_mod.run_embed(vector_db=mock_vector_db)
 
     assert count == 0  # already current

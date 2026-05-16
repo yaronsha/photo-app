@@ -7,10 +7,19 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.vectordb.base import VectorBackend
+
 # Backend tests don't build the frontend; let app/api/main.py write a stub
 # index.html instead of raising at import. Prod has this var unset and so
 # fails loud if dist/ is missing.
 os.environ.setdefault("FAMILY_PHOTOS_ALLOW_MISSING_FRONTEND", "1")
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "requires_postgres: marks tests that need a running Postgres+pgvector instance",
+    )
 
 
 _png_counter = 0
@@ -110,28 +119,89 @@ FULL_CAPTION_RESPONSE = {
 FAKE_EMBED_VEC = [0.1] * 1536
 
 
+# ── Docker / Postgres fixtures (require_postgres marker) ─────────────────────
+
+@pytest.fixture(scope="session")
+def docker_compose_file(pytestconfig):
+    return str(pytestconfig.rootpath / "docker-compose.test.yml")
+
+
+def _postgres_is_ready(url: str) -> bool:
+    try:
+        from sqlalchemy import create_engine, text
+        engine = create_engine(url)
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        engine.dispose()
+        return True
+    except Exception:
+        return False
+
+
+@pytest.fixture(scope="session")
+def postgres_url(docker_ip, docker_services):
+    port = docker_services.port_for("postgres", 5432)
+    url = f"postgresql+psycopg://test:test@{docker_ip}:{port}/photos_test"
+    docker_services.wait_until_responsive(
+        timeout=30.0, pause=0.5, check=lambda: _postgres_is_ready(url)
+    )
+    return url
+
+
+@pytest.fixture()
+def pg_engine(postgres_url):
+    """Fresh photos + embeddings schema per test; dropped on teardown."""
+    from sqlalchemy import create_engine, text
+    from app.db.orm import Base, Embedding, Photo
+
+    engine = create_engine(postgres_url)
+    with engine.connect() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        conn.commit()
+    Base.metadata.create_all(engine, tables=[Photo.__table__, Embedding.__table__])
+    yield engine
+    Base.metadata.drop_all(engine, tables=[Embedding.__table__, Photo.__table__])
+    engine.dispose()
+
+
+@pytest.fixture()
+def pg_session_factory(pg_engine):
+    """Session factory bound to the integration-test Postgres engine."""
+    from sqlalchemy.orm import Session
+
+    def factory():
+        return Session(bind=pg_engine, expire_on_commit=False, future=True)
+
+    return factory
+
+
+@pytest.fixture()
+def pg_backend(pg_session_factory):
+    """PgvectorBackend wired to the integration-test Postgres engine."""
+    from app.vectordb.pgvector_backend import PgvectorBackend
+
+    return PgvectorBackend(pg_session_factory)
+
+
+# ── Pipeline env ─────────────────────────────────────────────────────────────
+
 @pytest.fixture()
 def pipeline_env(tmp_env, monkeypatch):
-    """tmp_env + pre-wired mock caption/embed providers + mock chroma collection."""
-    import app.chroma as chroma_mod
-
-    # Reset module-level chroma singletons — prevents cross-test contamination
-    monkeypatch.setattr(chroma_mod, "_client", None)
-    monkeypatch.setattr(chroma_mod, "_collection", None)
-
+    """tmp_env + pre-wired mock caption/embed providers + mock vector backend."""
     mock_caption_provider = MagicMock()
     mock_caption_provider.caption = AsyncMock(return_value=FULL_CAPTION_RESPONSE)
 
     mock_embed_provider = MagicMock()
     mock_embed_provider.embed = MagicMock(return_value=FAKE_EMBED_VEC)
 
-    mock_collection = MagicMock()
-    mock_collection.upsert = MagicMock()
-    mock_collection.metadata = {"embed_model": "text-embedding-3-small"}
+    mock_vector_db = MagicMock(spec=VectorBackend)
+    mock_vector_db.query.return_value = []
+    mock_vector_db.count.return_value = 0
+    mock_vector_db.upsert.return_value = None
 
     return {
         **tmp_env,
         "mock_caption_provider": mock_caption_provider,
         "mock_embed_provider": mock_embed_provider,
-        "mock_collection": mock_collection,
+        "mock_vector_db": mock_vector_db,
     }

@@ -3,18 +3,24 @@ from datetime import datetime, timezone
 
 from sqlalchemy import or_, select, update
 
-from ..chroma import assert_embed_model, get_collection
 from ..config import get_settings
 from ..db import Photo, SessionLocal
+from ..vectordb import get_vector_backend
+from ..vectordb.base import VectorBackend
 from .providers import get_embed_provider
 
 
-def run_embed(reindex: bool = False, limit: int | None = None) -> int:
+def run_embed(reindex: bool = False, limit: int | None = None, vector_db: VectorBackend | None = None) -> int:
     settings = get_settings()
     provider = get_embed_provider()
+    vector_db = vector_db or get_vector_backend()
 
     print(f"embed: model={settings.embed_model} reindex={reindex} limit={limit}")
-    assert_embed_model(settings.embed_model)
+
+    # Validate model consistency (ChromaBackend exposes assert_embed_model;
+    # pgvector backend doesn't enforce this at the collection level).
+    if hasattr(vector_db, "assert_embed_model"):
+        vector_db.assert_embed_model(settings.embed_model)
 
     # Session opened directly (not via the auto-committing context manager) so
     # the per-row commit below is the single, intentional commit point — keeps
@@ -50,7 +56,6 @@ def run_embed(reindex: bool = False, limit: int | None = None) -> int:
             print("embed: nothing to do")
             return 0
 
-        collection = get_collection()
         embedded = 0
         skipped = 0
         t0 = time.time()
@@ -69,18 +74,14 @@ def run_embed(reindex: bool = False, limit: int | None = None) -> int:
                 skipped += 1
                 continue
 
-            year = 0
+            year: int | None = None
             if row.taken_at:
                 try:
                     year = int(str(row.taken_at)[:4])
                 except (ValueError, TypeError):
-                    year = 0
+                    year = None
 
-            collection.upsert(
-                ids=[row.id],
-                embeddings=[vec],
-                metadatas=[{"year": year}],
-            )
+            vector_db.upsert(row.id, vec, settings.embed_model, year)
 
             now = datetime.now(timezone.utc).isoformat()
             session.execute(

@@ -7,10 +7,11 @@ avoid any data migration).
 """
 from __future__ import annotations
 
-from sqlalchemy import Float, ForeignKey, Index, String
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import Float, ForeignKey, Index, Integer, String
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from .types import JSONString
+from .types import JsonCol
 
 
 class Base(DeclarativeBase):
@@ -28,8 +29,8 @@ class Photo(Base):
     lat: Mapped[float | None] = mapped_column(Float, nullable=True)
     lng: Mapped[float | None] = mapped_column(Float, nullable=True)
     caption: Mapped[str | None] = mapped_column(String, nullable=True)
-    tags: Mapped[list | None] = mapped_column(JSONString, nullable=True)
-    activities: Mapped[list | None] = mapped_column(JSONString, nullable=True)
+    tags: Mapped[list | None] = mapped_column(JsonCol, nullable=True)
+    activities: Mapped[list | None] = mapped_column(JsonCol, nullable=True)
     content_type: Mapped[str | None] = mapped_column(String, nullable=True)
     subject_type: Mapped[str | None] = mapped_column(String, nullable=True)
     primary_focus: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -41,7 +42,7 @@ class Photo(Base):
     happiness_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     aesthetic_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     description: Mapped[str | None] = mapped_column(String, nullable=True)
-    google_people: Mapped[list | None] = mapped_column(JSONString, nullable=True)
+    google_people: Mapped[list | None] = mapped_column(JsonCol, nullable=True)
     embed_schema_version: Mapped[int | None] = mapped_column(nullable=True)
     scan_indexed_at: Mapped[str | None] = mapped_column(String, nullable=True)
     caption_indexed_at: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -78,9 +79,20 @@ class PhotoPerson(Base):
         ForeignKey("people.id"),
         primary_key=True,
     )
-    face_bbox: Mapped[list | None] = mapped_column(JSONString, nullable=True)
+    face_bbox: Mapped[list | None] = mapped_column(JsonCol, nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     __table_args__ = (
         Index("idx_photo_people_person", "person_id"),
     )
+
+
+class Embedding(Base):
+    __tablename__ = "embeddings"
+
+    photo_id: Mapped[str] = mapped_column(
+        String, ForeignKey("photos.id", ondelete="CASCADE"), primary_key=True
+    )
+    embedding: Mapped[list[float]] = mapped_column(Vector(1536), nullable=False)
+    embed_model: Mapped[str] = mapped_column(String, nullable=False)
+    year: Mapped[int | None] = mapped_column(Integer, nullable=True)

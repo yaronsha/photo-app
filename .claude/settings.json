@@ -19,7 +19,7 @@
           },
           {
             "type": "command",
-            "command": "CMD=$(jq -r '.tool_input.command // empty'); if [[ \"$CMD\" =~ --step\\ (caption|embed) ]] && ! [[ \"$CMD\" =~ --limit ]]; then echo '{\"systemMessage\": \"⚠️  Indexer running without --limit. This will hit all photos and cost money. Use --limit to test first.\", \"continue\": true}'; fi; exit 0"
+            "command": "CMD=$(jq -r '.tool_input.command // empty'); case \"$CMD\" in *'--step caption'*|*'--step embed'*) case \"$CMD\" in *'--limit'*) ;; *) echo '{\"systemMessage\": \"⚠️  Indexer running without --limit. This will hit all photos and cost money. Use --limit to test first.\", \"continue\": true}'; ;; esac ;; esac; exit 0"
           }
         ]
       }

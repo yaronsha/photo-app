@@ -18,6 +18,9 @@ dependencies = [
     "pydantic>=2",
     "reverse_geocoder==1.5.1",
     "sqlalchemy>=2,<3",
+    "psycopg[binary]>=3.2",
+    "pgvector>=0.3",
+    "alembic>=1.13",
 ]
 
 [project.scripts]
@@ -26,9 +29,15 @@ photos-index = "app.indexer.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
 
+[tool.pytest.ini_options]
+markers = [
+    "requires_postgres: needs TEST_DATABASE_URL pointing at a Postgres+pgvector instance",
+]
+
 [dependency-groups]
 dev = [
     "pytest",
     "pytest-asyncio",
+    "pytest-docker>=3.2",
     "httpx",
 ]
