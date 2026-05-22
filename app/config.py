@@ -5,10 +5,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, model_validator
 
-# Load env file: use ENV_FILE if set, otherwise .env
-_env_file = os.environ.get("ENV_FILE", ".env")
-_env_path = Path(__file__).parent.parent / _env_file
-load_dotenv(dotenv_path=_env_path, override=False)
+# Load env file only when ENV_FILE is explicitly set — no implicit .env fallback.
+_env_file = os.environ.get("ENV_FILE")
+if _env_file:
+    _env_path = Path(__file__).parent.parent / _env_file
+    load_dotenv(dotenv_path=_env_path, override=False)
 
 _CONFIG_PATH = Path(__file__).parent.parent / "config.json"
 

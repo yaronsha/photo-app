@@ -208,13 +208,13 @@ def photo(photo_id: str):
 # isn't a clean key under the photos/ namespace.
 def _check_key(key: str | None) -> None:
     if not key:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise HTTPException(status_code=404, detail="Photo not found")
     if not key.startswith("photos/"):
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise HTTPException(status_code=404, detail="Photo not found")
     if ".." in key.split("/"):
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise HTTPException(status_code=404, detail="Photo not found")
     if "\\" in key:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise HTTPException(status_code=404, detail="Photo not found")
 
 
 def _make_thumb(src_bytes: bytes) -> bytes:
