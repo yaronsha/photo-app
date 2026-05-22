@@ -15,8 +15,10 @@
 uv sync
 
 # 2. Env vars
-cp .env.example .env
-# edit .env, set OPENAI_API_KEY
+cp .env.example .env.local
+# edit .env.local — set OPENAI_API_KEY and any other overrides
+# .env is never auto-loaded; pass ENV_FILE=.env.local when running commands
+# (VS Code launch config already sets ENV_FILE automatically)
 
 # 3. Config
 $EDITOR config.json
@@ -172,8 +174,10 @@ A legacy `photos_dir` key is ignored if present (Pydantic `extra="ignore"`), so 
 | `R2_ACCESS_KEY_ID` | — | Required when `STORAGE_BACKEND=r2` |
 | `R2_SECRET_ACCESS_KEY` | — | Required when `STORAGE_BACKEND=r2` |
 | `R2_BUCKET` | — | Required when `STORAGE_BACKEND=r2` |
-| `VECTOR_BACKEND` | `chroma` | `chroma` (local) or `pgvector` (Supabase Postgres) |
-| `DATABASE_URL` | SQLite path | Override for Postgres |
+| `ENV_FILE` | _(none)_ | Path to env file to load (e.g. `.env.local`). No file is loaded if unset — set explicitly, never rely on `.env` auto-loading |
+| `VECTOR_BACKEND` | `chroma` | `chroma` (local ChromaDB) or `pgvector` (Postgres + pgvector) |
+| `DATABASE_URL` | SQLite path | Postgres URL for app connections (pooler-safe) |
+| `DATABASE_URL_DIRECT` | — | Direct Postgres URL for Alembic migrations (bypasses PgBouncer) |
 | `OPENAI_API_KEY` | — | Required for caption + embed steps |
 
 ## Common Tasks
@@ -203,7 +207,16 @@ The schema is recreated automatically — `init_schema` (called on FastAPI start
 
 ### Database URL
 
-Default: `sqlite:///{data_dir}/photos.db`. Override via `DATABASE_URL` env var (e.g. `sqlite:///:memory:` for tests, or a Postgres URL once Supabase migration lands). The engine is built lazily on first use and cached per-URL.
+Default: `sqlite:///{data_dir}/photos.db`. Override via `DATABASE_URL` (app) or `DATABASE_URL_DIRECT` (Alembic migrations). Engine is built lazily on first use and cached per-URL.
+
+For local Postgres: start the container with `scripts/pg.sh start` (port 5432, DB/user/pass `photos`), then set `DATABASE_URL` + `DATABASE_URL_DIRECT` in `.env.local`. Run Alembic migrations with `ENV_FILE` + `DATABASE_URL_DIRECT` both explicit — no implicit `.env` loading:
+
+```bash
+ENV_FILE=.env.local DATABASE_URL_DIRECT=postgresql+psycopg://photos:photos@localhost:5432/photos \
+  uv run alembic upgrade head
+```
+
+Migration `0002` rewrites absolute `storage_path` values to relative keys. If rows still have absolute paths, run without `STORAGE_MIGRATION_PREFIX` first — it auto-detects the prefix and tells you the correct value to pass.
 
 ### Add a new game type
 1. Create `app/games/{game}.py` (module not yet implemented — see ROADMAP)
