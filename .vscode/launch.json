@@ -35,7 +35,8 @@
       "envFile": "${workspaceFolder}/.env.local.no-secrets",
       "env": {
         "PYTHONPATH": "${workspaceFolder}",
-        "ENV_FILE": ".env.local.no-secrets"
+        "ENV_FILE": ".env.local.no-secrets",
+        "OPENAI_API_KEY": "${localEnv:OPENAI_API_KEY}"
       },
       "console": "integratedTerminal"
     },

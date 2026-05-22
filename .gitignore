@@ -3,6 +3,7 @@ photos/
 photos.db
 .DS_Store
 .env
+.env.local.secrets
 __pycache__/
 .venv/
 *.pyc
