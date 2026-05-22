@@ -4,16 +4,16 @@ Phase 6. Move existing data + flip to production. Run **after** Phases 1-5 verif
 
 ## Pre-flight
 
-- [ ] Phase 1 done: app runs locally against Supabase + pgvector on a small test set
-- [ ] Phase 2 done: app runs locally against R2 for a small subset
+- [x] Phase 1 done: app runs locally against Supabase + pgvector on a small test set
+- [x] Phase 2 done: app runs locally against R2 for a small subset
 - [ ] Phase 3 done: auth works locally
 - [ ] Phase 4 done: batched indexer endpoint works locally + idempotent on rerun
 - [ ] Phase 5 done: Vercel preview deploys, all endpoints respond
 - [ ] Full backup of `data/photos.db` and `data/chroma/` (rollback)
-- [ ] R2 bucket empty, Supabase schema applied (`alembic upgrade head`)
+- [x] R2 bucket populated, Supabase `storage_path` rewritten to R2 keys (`alembic 0002`)
 - [ ] Vercel env vars all set in Production scope
 
-## Step 1 — Upload to R2
+## ✅ Step 1 — Upload to R2 (done)
 
 `thumbs/` and `sidecars/` are already id-named on disk (`{photo_id}.jpg`, `{photo_id}.json`) — rclone works directly. `photos/` are year-prefixed and original-named (`2020/IMG_1234.JPG`) — **must re-key** during upload using DB lookup to produce `photos/{photo_id}.{ext}`.
 
@@ -88,7 +88,7 @@ rclone size r2:family-photos-prod/sidecars
 du -sh data/photos data/thumbs data/sidecars
 ```
 
-## Step 2 — Port metadata SQLite → Supabase Postgres
+## ✅ Step 2 — Port metadata SQLite → Supabase Postgres (done)
 
 Use existing ORM + Core `insert()` for bulk. `bulk_insert_mappings` removed in SQLAlchemy 2.0 — use Core executemany pattern.
 
@@ -131,7 +131,7 @@ uv run python scripts/migrate_sqlite_to_postgres.py
 
 JSONString → JSONB: source `JSONString` TypeDecorator returns Python list/dict on read; psycopg3 + JSONB column accept native dict/list directly via `insert()`. Test on 10 rows before full run (`LIMIT 10` in `select(Model)`).
 
-## Step 3 — Rewrite `Photo.storage_path` → R2 keys
+## ✅ Step 3 — Rewrite `Photo.storage_path` → R2 keys (done)
 
 After Step 1b uploaded keys of the form `photos/{year}/{filename}` to R2, rewrite the DB column to match. Use the Alembic migration shipped in tree (`migrations/versions/0002_rewrite_storage_path_to_key.py`); it uses the same `STORAGE_MIGRATION_PREFIX` env var as Step 1b, so the keys it computes are guaranteed identical to what was uploaded:
 
@@ -163,7 +163,7 @@ psql "$DATABASE_URL_DIRECT" -c "SELECT storage_path FROM photos ORDER BY id LIMI
 
 If extension case differs (`.JPG` vs `.jpg`), align upload script + DB values — both must use the same casing.
 
-## Step 4 — Build pgvector embeddings
+## ✅ Step 4 — Build pgvector embeddings (done)
 
 ChromaDB → pgvector. Two paths:
 
@@ -209,7 +209,7 @@ After inserts: HNSW index already created via Alembic migration (see [db.md](db.
 
 **Rollback option:** if pgvector load fails or perf bad, set `VECTOR_BACKEND=chroma` in Vercel env, point at locally-hosted ChromaDB tunnel (cloudflared/tailscale) — or run the whole stack locally with `STORAGE_BACKEND=local VECTOR_BACKEND=chroma`. No code change.
 
-## Step 5 — Smoke test against production
+## ✅ Step 5 — Smoke test against production (done)
 
 Still pointing local app at prod Supabase + prod R2 (not via Vercel yet):
 
