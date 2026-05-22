@@ -120,7 +120,7 @@ def test_photo_bad_key_prefix_rejected(tmp_env, client):
             scan_indexed_at="2020-01-01T00:00:00+00:00",
         ))
 
-    resp = client.get("/photo/evilid000000abcd")
+    resp = client.get("/photo/evilid000000abcd", follow_redirects=False)
     assert resp.status_code == 403
 
 
@@ -136,7 +136,7 @@ def test_photo_traversal_segment_rejected(tmp_env, client):
             scan_indexed_at="2020-01-01T00:00:00+00:00",
         ))
 
-    resp = client.get("/photo/trav123456abcdef")
+    resp = client.get("/photo/trav123456abcdef", follow_redirects=False)
     assert resp.status_code == 403
 
 
@@ -144,16 +144,16 @@ def test_photo_404_when_row_missing(client):
     from app.db import init_schema
     init_schema()
 
-    resp = client.get("/photo/nonexistent")
+    resp = client.get("/photo/nonexistent", follow_redirects=False)
     assert resp.status_code == 404
 
 
 def test_thumb_generates_and_caches(tmp_env, client):
     _seed_photo(tmp_env, photo_id="thumbtest1234567")
 
-    resp = client.get("/thumb/thumbtest1234567")
-    assert resp.status_code == 200
-    assert resp.headers["content-type"] == "image/jpeg"
+    resp = client.get("/thumb/thumbtest1234567", follow_redirects=False)
+    assert resp.status_code == 302
+    assert resp.headers["location"].endswith("thumbs/thumbtest1234567.jpg")
 
     cached = tmp_env["data_dir"] / "thumbs" / "thumbtest1234567.jpg"
     assert cached.exists()
@@ -163,12 +163,12 @@ def test_thumb_uses_cache_on_second_request(tmp_env, client):
     _seed_photo(tmp_env, photo_id="cachetest1234567")
 
     # First request — generates
-    client.get("/thumb/cachetest1234567")
+    client.get("/thumb/cachetest1234567", follow_redirects=False)
     cached = tmp_env["data_dir"] / "thumbs" / "cachetest1234567.jpg"
     first_mtime = cached.stat().st_mtime
 
     # Second request — should use cache, not re-generate
-    client.get("/thumb/cachetest1234567")
+    client.get("/thumb/cachetest1234567", follow_redirects=False)
     assert cached.stat().st_mtime == first_mtime
 
 

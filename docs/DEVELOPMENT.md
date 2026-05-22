@@ -179,6 +179,11 @@ A legacy `photos_dir` key is ignored if present (Pydantic `extra="ignore"`), so 
 | `DATABASE_URL` | SQLite path | Postgres URL for app connections (pooler-safe) |
 | `DATABASE_URL_DIRECT` | — | Direct Postgres URL for Alembic migrations (bypasses PgBouncer) |
 | `OPENAI_API_KEY` | — | Required for caption + embed steps |
+| `SUPABASE_JWT_SECRET` | — | Backend HS256 verify key. **Auth is enforced iff this is set.** Unset = local-dev rollback path (all endpoints open) |
+| `ALLOWED_EMAILS` | — | Comma-separated email allowlist checked against the JWT `email` claim. Required when auth enforced |
+| `CRON_SECRET` | — | Shared bearer for `/api/index-batch` (phase 4). Cron gate is bypassed when unset |
+| `VITE_SUPABASE_URL` | — | Frontend build-time: Supabase project URL. Setting both this and the anon key enables the Google OAuth login gate |
+| `VITE_SUPABASE_ANON_KEY` | — | Frontend build-time: Supabase anon public key |
 
 ## Common Tasks
 

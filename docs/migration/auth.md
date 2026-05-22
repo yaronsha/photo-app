@@ -1,29 +1,36 @@
-# Auth: Supabase Auth (Magic Link) + JWT Middleware
+# Auth: Supabase Auth (Google OAuth) + JWT Middleware
 
-Phase 3. Lock down API + frontend to family allowlist.
+Phase 3. Lock down API + frontend to family allowlist via Google sign-in.
+
+**Status:** ✅ shipped. Implementation in `app/api/auth.py`, `app/web/src/lib/{supabase,session}.ts`, `app/web/src/features/auth/LoginPage.tsx`.
 
 ## Model
 
-- Supabase Auth issues JWTs after magic-link confirmation
-- Frontend stores session via `@supabase/supabase-js`
+- Supabase Auth issues JWTs after Google OAuth completes
+- Frontend stores session via `@supabase/supabase-js` (Google provider, no magic links)
 - API endpoints (JSON) auth via `Authorization: Bearer <jwt>` header
-- **Image endpoints (`<img>` tags)** use one of two paths — pick one:
-  - **(default, recommended)** signed-URL redirect: `GET /photo/{id}` issues 302 to short-TTL presigned R2 URL. `<img src="/photo/{id}">` follows redirect transparently. No cookie needed. Auth check at redirect-issue time.
-  - **(fallback for proxy mode)** cookie auth: `POST /auth/exchange` sets httpOnly cookie carrying JWT; `<img>` includes cookie automatically. Use when bytes must proxy through Vercel (e.g. R2 keys must stay hidden, paranoid mode).
-- FastAPI middleware verifies signature (via `SUPABASE_JWT_SECRET`) + checks `email` claim against `ALLOWED_EMAILS` env list
-- Cron endpoints exempt from JWT auth, gated by shared secret instead
+- **Image endpoints (`/photo/{id}`, `/thumb/{id}`)** use **signed-URL redirect**: handler verifies JWT, then returns 302 to a short-TTL presigned R2 URL. `<img src="/photo/{id}">` follows the redirect transparently — no cookie needed, R2 keys stay hidden, function thread isn't tied up streaming bytes.
+- A `POST /auth/exchange` endpoint exists as a fallback for cookie-based `<img>` auth (`require_auth` already accepts an `sb_jwt` cookie) but is not used by the default flow.
+- FastAPI middleware verifies signature (`SUPABASE_JWT_SECRET`, HS256) + checks `email` claim against `ALLOWED_EMAILS`
+- Cron endpoints exempt from JWT auth; gated by shared `CRON_SECRET`
+
+## Opt-in by env var (rollback invariant)
+
+Auth is **off by default**. If `SUPABASE_JWT_SECRET` is unset, `require_auth` is a no-op and every endpoint is open — preserving the local-dev rollback path documented in [README.md](README.md). Setting `SUPABASE_JWT_SECRET` flips enforcement on. Same applies to `CRON_SECRET` for `require_cron`.
+
+This means: existing local CLI + uvicorn workflow continues to work with zero config changes. Vercel deploy sets the env vars → enforcement on.
 
 ## Supabase setup
 
-1. Dashboard → Authentication → Providers → enable Email (magic link only, disable signup if desired)
+1. Dashboard → Authentication → Providers → enable **Google**, paste Google OAuth client id/secret from Google Cloud Console (Authorized redirect URI: `https://<ref>.supabase.co/auth/v1/callback`)
 2. Authentication → URL Configuration → site URL = production Vercel URL; add `http://localhost:5173` to redirect allowlist for dev
 3. Settings → API → copy:
-   - `Project URL` → `SUPABASE_URL`
-   - `anon public key` → `SUPABASE_ANON_KEY` (frontend)
+   - `Project URL` → `SUPABASE_URL` (backend) / `VITE_SUPABASE_URL` (frontend)
+   - `anon public key` → `VITE_SUPABASE_ANON_KEY` (frontend)
    - `JWT secret` (Settings → API → JWT Settings) → `SUPABASE_JWT_SECRET` (backend)
-4. Env: `ALLOWED_EMAILS=mom@x.com,dad@x.com,...` (comma-separated)
+4. Env: `ALLOWED_EMAILS=mom@x.com,dad@x.com,...` (comma-separated, server-side allowlist)
 
-Disable signup means: emails not in Supabase Auth user list → no magic link sent. But also allowlist server-side because Supabase project may have other users.
+Server-side allowlist matters even if you restrict Google sign-in by Workspace domain — Supabase issues tokens for any Google user that signs in successfully, so the email-claim check is the actual gate.
 
 ## Backend
 
@@ -33,80 +40,51 @@ Disable signup means: emails not in Supabase Auth user list → no magic link se
 "pyjwt[crypto]>=2.9",
 ```
 
-Skip `supabase-py` SDK — overkill for verify-only.
+(Already in `pyproject.toml`.) No `supabase-py` SDK needed — we only verify, not call the API.
 
-### Middleware
+### Middleware — `app/api/auth.py`
 
-```python
-# app/api/auth.py
-import os, jwt
-from fastapi import Depends, HTTPException, Request
+Two FastAPI dependencies:
 
-JWT_SECRET = os.environ["SUPABASE_JWT_SECRET"]
-ALLOWED = set(e.strip().lower() for e in os.environ["ALLOWED_EMAILS"].split(","))
+- `require_auth(request) -> dict` — verifies the JWT and returns claims, raising 401/403 on rejection. Bearer can come from the `Authorization` header OR the `sb_jwt` cookie. Bypassed when `SUPABASE_JWT_SECRET` is unset.
+- `require_cron(request) -> None` — verifies `Authorization: Bearer <CRON_SECRET>` or `X-Cron-Secret`. Bypassed when `CRON_SECRET` unset. Uses `hmac.compare_digest` for constant-time comparison.
 
-def _decode(token: str) -> dict:
-    # PyJWT verifies exp by default. Do NOT cache — cache + expiry = stale-token validity bug.
-    return jwt.decode(token, JWT_SECRET, algorithms=["HS256"], audience="authenticated")
+JWT verify is ~ms — no caching. Caching introduces a revoked-token-stays-valid window.
 
-def require_auth(request: Request) -> dict:
-    # accept Authorization header OR sb_jwt cookie (for <img> tags via cookie exchange — see below)
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:] if auth.startswith("Bearer ") else request.cookies.get("sb_jwt")
-    if not token:
-        raise HTTPException(401, "missing bearer token")
-    try:
-        claims = _decode(token)
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(401, "token expired")
-    except jwt.PyJWTError as e:
-        raise HTTPException(401, f"invalid token: {e}")
-    email = (claims.get("email") or "").lower()
-    if email not in ALLOWED:
-        raise HTTPException(403, "email not allowed")
-    return claims
-```
+### Wiring
 
-JWT verify is ~ms — no caching needed. Caching introduces revoked-token-stays-valid bug for process lifetime.
-
-### Wire into endpoints
-
-`app/api/main.py`:
+In `app/api/main.py` every data endpoint takes `_user=Depends(require_auth)`:
 
 ```python
-from app.api.auth import require_auth
+@app.get("/people")
+def people_endpoint(_user=Depends(require_auth)): ...
 
 @app.get("/search")
-def search(..., user=Depends(require_auth)): ...
+def search_endpoint(..., _user=Depends(require_auth)): ...
 
 @app.get("/photo/{photo_id}")
-def get_photo(..., user=Depends(require_auth)): ...
-
-@app.get("/thumb/{photo_id}")
-def get_thumb(..., user=Depends(require_auth)): ...
-
-@app.get("/people")
-def people(..., user=Depends(require_auth)): ...
+def photo(photo_id: str, _user=Depends(require_auth)): ...
 ```
+
+Image endpoints (`/photo/{id}`, `/thumb/{id}`) return 302:
+
+```python
+@app.get("/photo/{photo_id}")
+def photo(photo_id: str, _user=Depends(require_auth)):
+    ...
+    url = storage.presign_get(key, expires=3600)
+    return RedirectResponse(url, status_code=302)
+```
+
+`Storage.presign_get(key, expires)` is implemented for both `LocalStorage` (returns `/local/{key}`) and `R2Storage` (calls `client.generate_presigned_url`).
+
+For local dev with `STORAGE_BACKEND=local` we mount `/local/` as `StaticFiles(directory=data_dir)`. **Skipped when `SUPABASE_JWT_SECRET` is set** — `/local/` is unauthenticated by design, so we refuse to expose it alongside JWT-gated endpoints (use R2 in prod).
 
 ### Cron endpoints
 
-`/api/index-batch` uses different gate. Vercel Cron sends `Authorization: Bearer <CRON_SECRET>` automatically when `CRON_SECRET` env var is set (Vercel convention since 2024). Also accept explicit `X-Cron-Secret` header for manual triggers / GitHub Actions / curl.
+`require_cron` is exported from `app/api/main` for phase 4 (compute refactor) to attach to `/api/index-batch`. Vercel Cron sends `Authorization: Bearer <CRON_SECRET>` automatically. Manual / GitHub Actions triggers can use `X-Cron-Secret`.
 
-```python
-def require_cron(request: Request):
-    expected = os.environ["CRON_SECRET"]
-    bearer = request.headers.get("Authorization", "")
-    bearer_tok = bearer[7:] if bearer.startswith("Bearer ") else None
-    header_tok = request.headers.get("X-Cron-Secret")
-    if bearer_tok != expected and header_tok != expected:
-        raise HTTPException(403)
-
-@app.post("/api/index-batch")
-def index_batch(step: str, limit: int = 50, _=Depends(require_cron)): ...
-```
-
-Do **not** rely on `User-Agent: vercel-cron/1.0` or `X-Vercel-Cron` — those can be spoofed by anyone hitting the public URL.
+Do **not** rely on `User-Agent: vercel-cron/1.0` or `X-Vercel-Cron` — both can be spoofed by anyone hitting the public URL.
 
 ## Frontend
 
@@ -116,121 +94,22 @@ Do **not** rely on `User-Agent: vercel-cron/1.0` or `X-Vercel-Cron` — those ca
 "@supabase/supabase-js": "^2.45"
 ```
 
-### Client
+### Files
 
-```ts
-// app/web/src/lib/supabase.ts
-import { createClient } from '@supabase/supabase-js'
-export const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY,
-)
-```
+- `app/web/src/lib/supabase.ts` — creates the client iff `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` are set. Exports `supabase` (or `null`) and `isAuthEnabled`. Mirrors the backend's opt-in model.
+- `app/web/src/lib/session.ts` — `useSession()` hook returns `{ session, loading }`. Subscribes to `onAuthStateChange`.
+- `app/web/src/features/auth/LoginPage.tsx` — single "Sign in with Google" button calling `supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } })`.
+- `app/web/src/App.tsx` — gates routes: if `isAuthEnabled && !session` → `<LoginPage/>`, else app.
+- `app/web/src/api/client.ts` — `apiFetch` reads the active session and injects `Authorization: Bearer <access_token>` on every JSON request.
 
 Env vars (Vite requires `VITE_` prefix): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
 
-### Login page
-
-```tsx
-// app/web/src/features/auth/LoginPage.tsx
-export function LoginPage() {
-  const [email, setEmail] = useState('')
-  const [sent, setSent] = useState(false)
-  const submit = async (e) => {
-    e.preventDefault()
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: window.location.origin },
-    })
-    if (!error) setSent(true)
-  }
-  if (sent) return <p>Check your email.</p>
-  return (
-    <form onSubmit={submit}>
-      <input type="email" value={email} onChange={e => setEmail(e.target.value)} required />
-      <button type="submit">Send magic link</button>
-    </form>
-  )
-}
-```
-
-### Auth guard + token injection
-
-```tsx
-// app/web/src/lib/session.ts
-import { useEffect, useState } from 'react'
-import { supabase } from './supabase'
-
-export function useSession() {
-  const [session, setSession] = useState(null)
-  const [loading, setLoading] = useState(true)
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setLoading(false) })
-    const { data: sub } = supabase.auth.onAuthStateChange((_, s) => setSession(s))
-    return () => sub.subscription.unsubscribe()
-  }, [])
-  return { session, loading }
-}
-```
-
-Top-level routing (`app/web/src/main.tsx` or `App.tsx`):
-
-```tsx
-function App() {
-  const { session, loading } = useSession()
-  if (loading) return <Spinner/>
-  if (!session) return <LoginPage/>
-  return <Routes>...</Routes>
-}
-```
-
-API client adds bearer:
-
-```ts
-// app/web/src/api/client.ts
-import { supabase } from '../lib/supabase'
-
-export async function apiFetch(url: string, init: RequestInit = {}) {
-  const { data: { session } } = await supabase.auth.getSession()
-  const headers = new Headers(init.headers)
-  if (session) headers.set('Authorization', `Bearer ${session.access_token}`)
-  return fetch(url, { ...init, headers })
-}
-```
-
-Replace all raw `fetch` in `app/web/src/api/` with `apiFetch`.
-
-Photo + thumb `<img>` tags = problem (can't set Authorization header).
-
-**Default = signed-URL redirect (no cookie).** `GET /photo/{id}` and `/thumb/{id}` require JWT auth, then return `302 Location: <presigned R2 URL>`. `<img src="/photo/{id}">` follows redirect to R2 directly. R2 keys still hidden behind app endpoint. Browser handles redirect transparently. Function thread doesn't hold open while bytes transfer — Vercel concurrency safer. No cookie state. R2 zero-egress wins kept.
-
-```python
-@app.get("/photo/{photo_id}")
-def get_photo(photo_id: str, session=Depends(get_session), user=Depends(require_auth)):
-    key = _resolve_photo_key(photo_id, session)
-    url = storage.presign_get(key, expires=3600)  # adds method to Storage interface
-    return RedirectResponse(url, status_code=302)
-```
-
-Add to `Storage` interface ([storage.md](storage.md)): `presign_get(key, expires) -> str`. LocalStorage returns a local URL (dev only, FastAPI mounts `data/` as static); R2Storage calls `client.generate_presigned_url`.
-
-**Fallback = cookie path** (use when redirects unsuitable, e.g. CSP forbids cross-origin img, or audit demands per-byte auth):
-
-```python
-@app.post("/auth/exchange")
-def exchange(request: Request, response: Response):
-    token = request.headers.get("Authorization", "")[7:]
-    _decode(token)  # validate
-    response.set_cookie("sb_jwt", token, httponly=True, secure=True, samesite="lax", max_age=3600)
-    return {"ok": True}
-```
-
-Frontend calls `/auth/exchange` after login. `require_auth` already reads `Authorization` header OR `sb_jwt` cookie (see middleware above). `<img>` proxies via FastAPI streaming R2 bytes.
+`<img>` tags use `/photo/{id}` and `/thumb/{id}` — those issue a 302 redirect to a presigned URL, so no Authorization header is needed on the browser's redirect-following request.
 
 ## Verification
 
 ```bash
-# 1. Unauthenticated rejected
+# 1. Unauthenticated rejected (with SUPABASE_JWT_SECRET set)
 curl -i http://localhost:8000/search
 # expect 401
 
@@ -242,34 +121,36 @@ curl -i -H "Authorization: Bearer junk" http://localhost:8000/search
 # manually craft JWT with non-allowed email
 # expect 403
 
-# 4. Valid magic-link flow
-# - load frontend, enter allowlisted email
-# - click magic link in email
-# - redirected back, session set
+# 4. Valid Google OAuth flow
+# - load frontend, click "Sign in with Google"
+# - Google consent → redirect back, session set
 # - /search returns results
-# - <img> loads photo
+# - <img> loads via /photo/{id} → 302 → R2
 
 # 5. Cron header
 curl -X POST -H "X-Cron-Secret: $CRON_SECRET" \
   "http://localhost:8000/api/index-batch?step=caption&limit=2"
-# expect 200
-curl -X POST "http://localhost:8000/api/index-batch?step=caption"
+# expect 200 (once phase 4 ships /api/index-batch)
+curl -X POST "http://localhost:8000/api/index-batch"
 # expect 403
 ```
 
+Automated coverage: `tests/test_auth.py` (token rejection paths, allowlist, cookie auth, 302 redirect on photo/thumb, cron secret accept/reject).
+
 ## Critical files
 
-- `app/api/auth.py` **(new)**
-- `app/api/main.py` (add `Depends(require_auth)` to all data endpoints)
-- `app/web/src/lib/supabase.ts`, `session.ts` **(new)**
-- `app/web/src/features/auth/LoginPage.tsx` **(new)**
-- `app/web/src/api/client.ts` (add bearer injection)
+- `app/api/auth.py` (new)
+- `app/api/main.py` (added `Depends(require_auth)`; switched `/photo` + `/thumb` to 302 presign redirect; mounted `/local/` in dev)
+- `app/web/src/lib/supabase.ts`, `app/web/src/lib/session.ts` (new)
+- `app/web/src/features/auth/LoginPage.tsx` (new)
+- `app/web/src/api/client.ts` (bearer injection)
 - `pyproject.toml` (+`pyjwt[crypto]`)
 - `app/web/package.json` (+`@supabase/supabase-js`)
+- `tests/test_auth.py` (new)
 
 ## Risks
 
-- **JWT secret in env vs JWKS:** Supabase HS256 default = shared secret. Anyone with `SUPABASE_JWT_SECRET` can mint tokens. Treat as production secret. Rotate via Supabase dashboard if leaked.
-- **Cookie + CORS:** if frontend on different domain than API, need `SameSite=None; Secure` + `Access-Control-Allow-Credentials`. On Vercel same origin = fine.
-- **Magic link emails to spam:** configure custom SMTP in Supabase, or accept Supabase default (rate-limited).
-- **Allowlist drift:** `ALLOWED_EMAILS` env list = manual. Add a person = redeploy. Future: move to Postgres table.
+- **JWT secret in env vs JWKS:** Supabase HS256 default = shared secret. Anyone with `SUPABASE_JWT_SECRET` can mint tokens. Treat as production secret; rotate via Supabase dashboard if leaked.
+- **Cookie + CORS:** Vercel same-origin = fine. If the frontend ever moves to a separate domain, set `SameSite=None; Secure` + `Access-Control-Allow-Credentials`.
+- **Allowlist drift:** `ALLOWED_EMAILS` env list = manual. Adding a person = redeploy. Future: move to Postgres table.
+- **Local `/local/` mount:** unauthenticated by design (dev only). The conditional skip when `SUPABASE_JWT_SECRET` is set prevents accidentally exposing it next to JWT-gated routes.

@@ -76,14 +76,24 @@ Hybrid semantic + filter search.
 `has_more` is `true` when more results exist beyond the current `offset + limit` window. Use with `offset` to implement "Load more" pagination.
 
 ### `GET /thumb/{photo_id}`
-Returns 400×400 JPEG thumbnail. Generated lazily on first request, cached at `data/thumbs/{photo_id}.jpg`.
+Returns a **302 redirect** to a short-TTL presigned URL for the 400×400 JPEG thumbnail. Thumbs are generated lazily on first request and cached at `thumbs/{photo_id}.jpg` in the configured storage backend.
 
-EXIF orientation applied (`ImageOps.exif_transpose`). Cache invalidates implicitly because `photo_id` is content hash.
+EXIF orientation applied (`ImageOps.exif_transpose`). Cache invalidates implicitly because `photo_id` is a content hash. With `STORAGE_BACKEND=r2` the redirect points to R2 directly (no app bytes); with `STORAGE_BACKEND=local` it points to `/local/<key>` served as static files.
 
 ### `GET /photo/{photo_id}`
-Streams original file. Media type inferred from file suffix.
+Returns a **302 redirect** to a short-TTL presigned URL for the original file. Media type negotiation happens at the storage layer.
 
-**Path traversal guard:** real-path of `storage_path` must start with real-path of `photos_dir`. Otherwise 403.
+**Storage-key guard:** `storage_path` must start with `photos/` and contain no `..` segments. Otherwise 403.
+
+### `GET /api/me`
+Returns the authenticated caller's identity (email, sub, whether auth is enforced). Useful for frontend sanity check.
+
+```json
+{"email": "user@example.com", "sub": "...", "auth_enabled": true}
+```
+
+### `POST /auth/exchange`
+Fallback for cookie-based `<img>` auth (the default flow uses signed-URL redirects and doesn't need this). Validates the bearer in `Authorization: Bearer <jwt>` and returns `{"ok": true, "email": "..."}`. Frontend would set `sb_jwt` httpOnly cookie via this endpoint if it needed cookie-carrying `<img>` requests.
 
 ### `GET /photo/{photo_id}/info`
 Full metadata for one photo. Returns everything in `photos` row plus joined `people`.
@@ -99,8 +109,10 @@ indoor_outdoor, setting_type, sharpness, face_clarity_score
 
 | Status | When |
 |---|---|
+| 302 | Photo/thumb endpoints — redirect to presigned storage URL |
 | 400 | Invalid `date_from`/`date_to` format, invalid `people_mode` |
-| 403 | Path traversal attempted on `/photo` or `/thumb` |
+| 401 | Missing / invalid / expired JWT (when auth enabled) |
+| 403 | Allowlisted-email check failed, or path-traversal attempted on `/photo` or `/thumb`, or bad cron secret |
 | 404 | Photo ID not in DB, or file missing on disk |
 
 ## Adding a New Endpoint
@@ -110,6 +122,16 @@ indoor_outdoor, setting_type, sharpness, face_clarity_score
 3. If DB read — use `get_conn()` and close after; `row_to_dict()` to serialize JSON columns
 4. Update this doc
 
-## CORS / Auth
+## Auth
 
-Currently none. Local-only deployment assumed. Add `CORSMiddleware` and auth before any LAN exposure.
+JWT verification via Supabase Auth (Google OAuth). All data endpoints (`/people`, `/search`, `/photo/*`, `/thumb/*`, `/api/me`, `/auth/exchange`) require `Authorization: Bearer <jwt>` or an `sb_jwt` cookie.
+
+Auth is **opt-in**: with `SUPABASE_JWT_SECRET` unset, `require_auth` is a no-op — preserves local-dev rollback path. Setting `SUPABASE_JWT_SECRET` + `ALLOWED_EMAILS` flips enforcement on.
+
+Cron endpoints (`/api/index-batch`, phase 4) use `require_cron` instead — `Authorization: Bearer <CRON_SECRET>` or `X-Cron-Secret` header.
+
+See [docs/migration/auth.md](migration/auth.md) for the full design.
+
+## CORS
+
+None configured — assumes same-origin frontend (Vercel static + functions). Add `CORSMiddleware` if API is split to a different domain.

@@ -3,8 +3,8 @@ import os
 from datetime import date
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
 from sqlalchemy import select
@@ -14,6 +14,7 @@ from ..db import Person, Photo, PhotoPerson, get_session, init_schema
 from ..search.query import search as do_search
 from ..storage import get_storage
 from ..storage.base import KeyNotFound
+from .auth import require_auth, require_cron
 
 
 def _validate_iso_date(value: str | None, field: str) -> str | None:
@@ -71,7 +72,7 @@ def startup():
 
 
 @app.get("/people")
-def people_endpoint():
+def people_endpoint(_user=Depends(require_auth)):
     return [{"id": p.id, "name": p.name} for p in get_settings().people]
 
 
@@ -85,6 +86,7 @@ def search_endpoint(
     person_id: list[str] = Query(default=[]),
     people_mode: str = Query("any"),
     include_docs: bool = Query(False),
+    _user=Depends(require_auth),
 ):
     lo = _validate_iso_date(date_from, "date_from")
     hi = _validate_iso_date(date_to, "date_to")
@@ -127,7 +129,7 @@ def search_endpoint(
 
 
 @app.get("/thumb/{photo_id}")
-def thumb(photo_id: str):
+def thumb(photo_id: str, _user=Depends(require_auth)):
     with get_session() as session:
         db_photo = session.get(Photo, photo_id)
 
@@ -143,15 +145,18 @@ def thumb(photo_id: str):
             src_bytes = storage.read_bytes(db_photo.storage_path)
             thumb_bytes = _make_thumb(src_bytes)
             storage.write_bytes(thumb_key, thumb_bytes, "image/jpeg")
-        return StreamingResponse(storage.open_stream(thumb_key), media_type="image/jpeg")
+        url = storage.presign_get(thumb_key, expires=3600)
+        return RedirectResponse(url, status_code=302)
     except KeyNotFound:
         raise HTTPException(status_code=404, detail="Photo bytes not found")
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=502, detail="Storage backend error")
 
 
 @app.get("/photo/{photo_id}/info")
-def photo_info(photo_id: str):
+def photo_info(photo_id: str, _user=Depends(require_auth)):
     with get_session() as session:
         photo = session.get(Photo, photo_id)
         if photo is None:
@@ -183,7 +188,7 @@ def photo_info(photo_id: str):
 
 
 @app.get("/photo/{photo_id}")
-def photo(photo_id: str):
+def photo(photo_id: str, _user=Depends(require_auth)):
     with get_session() as session:
         db_photo = session.get(Photo, photo_id)
 
@@ -193,14 +198,40 @@ def photo(photo_id: str):
     key = db_photo.storage_path
     _check_key(key)
     storage = get_storage()
-    ext = key.rsplit(".", 1)[-1].lower()
-    media_type = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
     try:
-        return StreamingResponse(storage.open_stream(key), media_type=media_type)
+        if not storage.exists(key):
+            raise HTTPException(status_code=404, detail="Photo bytes not found")
+        url = storage.presign_get(key, expires=3600)
+        return RedirectResponse(url, status_code=302)
+    except HTTPException:
+        raise
     except KeyNotFound:
         raise HTTPException(status_code=404, detail="Photo bytes not found")
     except Exception:
         raise HTTPException(status_code=502, detail="Storage backend error")
+
+
+@app.post("/auth/exchange")
+def auth_exchange(claims: dict = Depends(require_auth)):
+    """Cookie-exchange path (fallback for proxy mode); not used by default
+    signed-URL redirect flow but exposed so frontend can opt in.
+    """
+    return {"ok": True, "email": claims.get("email")}
+
+
+@app.get("/api/me")
+def me(claims: dict = Depends(require_auth)):
+    """Return the caller's authenticated identity. Useful for frontend sanity check."""
+    return {
+        "email": claims.get("email"),
+        "sub": claims.get("sub"),
+        "auth_enabled": bool(os.environ.get("SUPABASE_JWT_SECRET")),
+    }
+
+
+# `require_cron` is exported here so phase 4 (compute refactor) can attach
+# it to `/api/index-batch` without re-importing auth machinery.
+__all__ = ["app", "require_cron"]
 
 
 # storage_path is written by our own indexer, but treat it as untrusted in case
@@ -228,6 +259,20 @@ def _make_thumb(src_bytes: bytes) -> bytes:
 
 
 app.mount("/static", StaticFiles(directory=str(_DIST_DIR)), name="static")
+
+
+# Local-dev only: serve files referenced by LocalStorage.presign_get
+# (which returns "/local/<key>"). In prod with STORAGE_BACKEND=r2 the
+# presign URLs point at R2 directly and this mount is irrelevant.
+# Skipped when auth is enabled — /local/ is unauthenticated by design, so
+# we refuse to expose it alongside JWT-gated endpoints.
+if (
+    os.environ.get("STORAGE_BACKEND", "local") == "local"
+    and not os.environ.get("SUPABASE_JWT_SECRET")
+):
+    _local_root = get_settings().data_dir
+    _local_root.mkdir(parents=True, exist_ok=True)
+    app.mount("/local", StaticFiles(directory=str(_local_root)), name="local")
 
 
 @app.get("/")

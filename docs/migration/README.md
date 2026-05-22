@@ -15,14 +15,14 @@ Move the app from laptop-only (SQLite + ChromaDB + local files) to Vercel-hosted
 | Vector DB | ChromaDB (local) | pgvector primary, ChromaDB rollback (via `VECTOR_BACKEND`) |
 | Photo blobs | `photos/`, `data/thumbs/`, `data/sidecars/`, `data/anchors/` | Cloudflare R2 (LocalStorage remains for local dev) |
 | Indexer | CLI on laptop | CLI (local) **or** Vercel Function batched via cron |
-| Auth | none | Supabase Auth (email magic link, allowlist) |
+| Auth | none | Supabase Auth (Google OAuth, allowlist) |
 | Photo serving | `FileResponse` local | 302 redirect to presigned R2 URL (default); byte proxy (fallback) |
 
 ## Decisions
 
 - **Indexer host:** Vercel Functions, batched. Triggers = Vercel Cron (Pro) or GitHub Actions/laptop `launchd` (Hobby).
 - **Photo serving:** proxy R2 bytes through Vercel (per-request auth check, hide R2 keys).
-- **Auth:** Supabase Auth magic-link with email allowlist in env (`ALLOWED_EMAILS`).
+- **Auth:** Supabase Auth Google OAuth with email allowlist in env (`ALLOWED_EMAILS`). Auth is opt-in — leaving `SUPABASE_JWT_SECRET` unset disables enforcement (the local-dev rollback path).
 
 ## Phase order
 
@@ -31,7 +31,7 @@ Move the app from laptop-only (SQLite + ChromaDB + local files) to Vercel-hosted
 | 0 | Prep (accounts, env vars, doc skeletons) | this doc | ☐ |
 | 1 | DB swap → Supabase Postgres + pgvector | [db.md](db.md) | ✅ |
 | 2 | Storage abstraction + R2 backend | [storage.md](storage.md) | ✅ |
-| 3 | Auth (Supabase Auth + JWT middleware) | [auth.md](auth.md) | ☐ |
+| 3 | Auth (Supabase Auth + JWT middleware) | [auth.md](auth.md) | ✅ |
 | 4 | Compute refactor (dual CLI + HTTP batch) | [compute.md](compute.md) | ☐ |
 | 5 | Vercel deploy config | [deploy.md](deploy.md) | ☐ |
 | 6 | Data cutover (one-time migration) | [runbook.md](runbook.md) | ☐ |

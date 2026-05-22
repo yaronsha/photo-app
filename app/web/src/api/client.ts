@@ -1,9 +1,21 @@
 import type { Person, SearchParams, SearchResponse, PhotoInfo } from './types';
+import { supabase } from '../lib/supabase';
 
 const BASE = '';
 
+async function authHeaders(): Promise<Headers> {
+  const headers = new Headers();
+  if (!supabase) return headers;
+  const { data } = await supabase.auth.getSession();
+  if (data.session) {
+    headers.set('Authorization', `Bearer ${data.session.access_token}`);
+  }
+  return headers;
+}
+
 async function apiFetch<T>(path: string): Promise<T> {
-  const resp = await fetch(`${BASE}${path}`);
+  const headers = await authHeaders();
+  const resp = await fetch(`${BASE}${path}`, { headers });
   if (!resp.ok) {
     throw new Error(`API error ${resp.status}: ${resp.url}`);
   }
