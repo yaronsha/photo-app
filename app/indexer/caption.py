@@ -1,10 +1,11 @@
 import asyncio
 from datetime import datetime, timezone
-from pathlib import Path
 
 from sqlalchemy import or_, select, update
 
 from ..db import Photo, get_session
+from ..storage import get_storage
+from ..storage.base import KeyNotFound
 from .providers import get_caption_provider
 
 DEFAULT_LIMIT = 50
@@ -18,6 +19,7 @@ def run_caption(limit: int = DEFAULT_LIMIT, reindex: bool = False) -> int:
 
 async def _run_caption_async(limit: int, reindex: bool) -> int:
     provider = get_caption_provider()
+    storage = get_storage()
 
     with get_session() as session:
         stmt = select(
@@ -38,13 +40,22 @@ async def _run_caption_async(limit: int, reindex: bool) -> int:
     semaphore = asyncio.Semaphore(CONCURRENCY)
     captioned = 0
     skipped = 0
+    transient_errors = 0
 
     async def process(row):
-        nonlocal captioned, skipped
-        path = Path(row.storage_path)
-        if not path.exists():
-            print(f"  missing file: {path} — skip")
+        nonlocal captioned, skipped, transient_errors
+
+        try:
+            image_data = storage.read_bytes(row.storage_path)
+        except KeyNotFound:
+            print(f"  missing: {row.storage_path} — skip")
             skipped += 1
+            return
+        except Exception as e:
+            # Transient (network / 5xx) — log loud, do not stamp
+            # caption_indexed_at, so next run retries.
+            print(f"  TRANSIENT read error {row.id}: {type(e).__name__}: {e}")
+            transient_errors += 1
             return
 
         location_hint = row.location_name or (
@@ -53,9 +64,9 @@ async def _run_caption_async(limit: int, reindex: bool) -> int:
 
         async with semaphore:
             try:
-                result = await provider.caption(path, location_hint=location_hint)
+                result = await provider.caption(image_data, location_hint=location_hint)
             except Exception as e:
-                print(f"  error {path.name}: {e}")
+                print(f"  error captioning {row.id}: {e}")
                 skipped += 1
                 return
 
@@ -85,5 +96,8 @@ async def _run_caption_async(limit: int, reindex: bool) -> int:
 
     await asyncio.gather(*[process(row) for row in rows])
 
-    print(f"caption: {captioned} captioned, {skipped} skipped")
+    print(
+        f"caption: {captioned} captioned, {skipped} skipped, "
+        f"{transient_errors} transient (re-run to retry)"
+    )
     return captioned

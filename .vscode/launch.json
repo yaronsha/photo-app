@@ -32,10 +32,10 @@
       ],
       "jinja": true,
       "justMyCode": true,
-      "envFile": "${workspaceFolder}/.env.local.no-secrets",
+      "envFile": "${workspaceFolder}/.env.local",
       "env": {
         "PYTHONPATH": "${workspaceFolder}",
-        "ENV_FILE": ".env.local.no-secrets"
+        "ENV_FILE": ".env.local"
       },
       "console": "integratedTerminal"
     },

@@ -77,7 +77,7 @@ ORM models live in `app/db/orm.py`; `Base.metadata.create_all` (called via `init
 ```sql
 photos (
     id                          PK — sha256(file_bytes)[:16] (content hash)
-    storage_path                UNIQUE — absolute path under photos_dir
+    storage_path                UNIQUE — backend-agnostic key, e.g. "photos/2018/img.jpg"
     original_filename
     taken_at                    TIMESTAMP — EXIF or sidecar photoTakenTime
     location_name               "city, country_code" from reverse_geocoder
@@ -163,4 +163,4 @@ To fork:
 1. Clone repo
 2. New `config.json` (family_name, people, aliases)
 3. New `data/` (created on first run)
-4. Point `photos_dir` at family's collection
+4. Drop the family's photos under `data/photos/` (or set `STORAGE_BACKEND=r2` and point R2 env vars at the family's bucket)

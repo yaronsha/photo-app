@@ -29,8 +29,8 @@ Move the app from laptop-only (SQLite + ChromaDB + local files) to Vercel-hosted
 | # | Phase | Doc | Status |
 |---|---|---|---|
 | 0 | Prep (accounts, env vars, doc skeletons) | this doc | ☐ |
-| 1 | DB swap → Supabase Postgres + pgvector | [db.md](db.md) | ☐ |
-| 2 | Storage abstraction + R2 backend | [storage.md](storage.md) | ☐ |
+| 1 | DB swap → Supabase Postgres + pgvector | [db.md](db.md) | ✅ |
+| 2 | Storage abstraction + R2 backend | [storage.md](storage.md) | ✅ |
 | 3 | Auth (Supabase Auth + JWT middleware) | [auth.md](auth.md) | ☐ |
 | 4 | Compute refactor (dual CLI + HTTP batch) | [compute.md](compute.md) | ☐ |
 | 5 | Vercel deploy config | [deploy.md](deploy.md) | ☐ |

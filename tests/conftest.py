@@ -44,16 +44,17 @@ def make_png(path: Path) -> None:
 
 @pytest.fixture()
 def tmp_env(tmp_path, monkeypatch):
-    """Isolated photos_dir + data_dir + config.json + OPENAI_API_KEY env."""
-    photos_dir = tmp_path / "photos"
-    photos_dir.mkdir()
+    """Isolated data_dir + photos subdir + config.json + OPENAI_API_KEY env."""
     data_dir = tmp_path / "data"
     data_dir.mkdir()
+    # photos live under data_dir so LocalStorage(root=data_dir) addresses them
+    # via key "photos/<filename>"
+    photos_dir = data_dir / "photos"
+    photos_dir.mkdir()
 
     cfg = {
         "family_name": "Test",
         "data_dir": str(data_dir),
-        "photos_dir": str(photos_dir),
         "caption_model": "gpt-4o",
         "embed_model": "text-embedding-3-small",
         "face_tolerance": 0.5,
@@ -64,6 +65,7 @@ def tmp_env(tmp_path, monkeypatch):
     cfg_path.write_text(json.dumps(cfg))
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("STORAGE_BACKEND", "local")
     # Don't let an outer DATABASE_URL leak into the test engine.
     monkeypatch.delenv("DATABASE_URL", raising=False)
 
@@ -75,11 +77,15 @@ def tmp_env(tmp_path, monkeypatch):
     from app.db import dispose_engines
     dispose_engines()
 
+    # Reset storage singleton so it re-reads env/config for this test.
+    import app.storage as storage_mod
+    storage_mod.reset_storage()
+
     yield {"photos_dir": photos_dir, "data_dir": data_dir, "cfg_path": cfg_path}
 
-    # Teardown: ensure engines tied to this tmp_path are closed before the
-    # directory is wiped (otherwise a stray connection can hold a WAL file).
+    # Teardown: ensure engines and storage tied to this tmp_path are closed.
     dispose_engines()
+    storage_mod.reset_storage()
 
 
 @pytest.fixture()

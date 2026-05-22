@@ -8,11 +8,10 @@ from app.vectordb.base import VectorBackend
 def _seed_db(photos_dir: Path) -> str:
     init_schema()
     photo_id = "abc123def456abc1"
-    photo_path = str(photos_dir / "beach.jpg")
     with get_session() as s:
         s.add(Photo(
             id=photo_id,
-            storage_path=photo_path,
+            storage_path="photos/beach.jpg",
             original_filename="beach.jpg",
             caption="A sunny day at the beach",
             tags=["beach", "sunny", "ocean"],
@@ -76,7 +75,7 @@ def _seed_multi(photos_dir: Path) -> list[str]:
         for pid, fname, taken, cap in rows:
             s.add(Photo(
                 id=pid,
-                storage_path=str(photos_dir / fname),
+                storage_path=f"photos/{fname}",
                 original_filename=fname,
                 caption=cap,
                 taken_at=taken,
@@ -160,7 +159,7 @@ def _seed_people_db(photos_dir: Path) -> dict:
         ]:
             s.add(Photo(
                 id=pid,
-                storage_path=str(photos_dir / fname),
+                storage_path=f"photos/{fname}",
                 original_filename=fname,
                 caption="caption",
                 taken_at=taken,
@@ -266,7 +265,7 @@ def _seed_mixed_content(photos_dir: Path) -> list[str]:
         for pid, fname, ctype, cap in rows:
             s.add(Photo(
                 id=pid,
-                storage_path=str(photos_dir / fname),
+                storage_path=f"photos/{fname}",
                 original_filename=fname,
                 caption=cap,
                 content_type=ctype,

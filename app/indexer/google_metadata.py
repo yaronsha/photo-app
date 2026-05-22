@@ -16,6 +16,8 @@ from sqlalchemy import select, update
 from ..config import get_settings
 from ..db import Photo, get_session, init_schema
 from ..db.upsert import upsert_person, upsert_photo_person
+from ..storage import get_storage
+from ..storage.base import KeyNotFound
 
 
 def _ts_to_iso(timestamp_str: str) -> str | None:
@@ -27,12 +29,8 @@ def _ts_to_iso(timestamp_str: str) -> str | None:
 
 def run_google_metadata(reindex: bool = False) -> int:
     settings = get_settings()
+    storage = get_storage()
     init_schema()
-
-    sidecars_dir = settings.data_dir / "sidecars"
-    if not sidecars_dir.exists():
-        print("google_metadata: no sidecars dir found — run merge_takeouts.py first")
-        return 0
 
     aliases: dict[str, str] = {
         k.lower(): v
@@ -55,9 +53,9 @@ def run_google_metadata(reindex: bool = False) -> int:
         now = datetime.now(timezone.utc).isoformat()
 
         for photo_id, taken_at, lat, lng in rows:
-            sidecar_path = sidecars_dir / f"{photo_id}.json"
+            sidecar_key = f"sidecars/{photo_id}.json"
 
-            if not sidecar_path.exists():
+            if not storage.exists(sidecar_key):
                 no_sidecar += 1
                 session.execute(
                     update(Photo)
@@ -67,8 +65,25 @@ def run_google_metadata(reindex: bool = False) -> int:
                 continue
 
             try:
-                data = json.loads(sidecar_path.read_text(encoding="utf-8"))
-            except Exception:
+                data = json.loads(storage.read_bytes(sidecar_key).decode("utf-8"))
+            except KeyNotFound:
+                # exists() said yes; gone now — treat as no_sidecar.
+                no_sidecar += 1
+                session.execute(
+                    update(Photo)
+                    .where(Photo.id == photo_id)
+                    .values(google_metadata_indexed_at=now)
+                )
+                continue
+            except json.JSONDecodeError as exc:
+                print(f"  google_metadata bad json {photo_id}: {exc}")
+                skipped += 1
+                continue
+            except Exception as exc:
+                print(
+                    f"  google_metadata TRANSIENT read error {photo_id}: "
+                    f"{type(exc).__name__}: {exc}"
+                )
                 skipped += 1
                 continue
 

@@ -15,8 +15,10 @@
 uv sync
 
 # 2. Env vars
-cp .env.example .env
-# edit .env, set OPENAI_API_KEY
+cp .env.example .env.local
+# edit .env.local — set OPENAI_API_KEY and any other overrides
+# .env is never auto-loaded; pass ENV_FILE=.env.local when running commands
+# (VS Code launch config already sets ENV_FILE automatically)
 
 # 3. Config
 $EDITOR config.json
@@ -54,7 +56,7 @@ cd app/web && npm run dev
 uv run photos-index --step <step> [--limit N] [--reindex]
 ```
 
-Steps: `merge | scan | google_metadata | location | pre_caption | caption | embed | all`.
+Steps: `merge | scan | google_metadata | location | pre_caption | caption | embed | thumb | all`.
 See [INDEXING.md](INDEXING.md) for full step detail.
 
 ### Tests
@@ -138,7 +140,6 @@ family-photos-app/
 {
   "family_name":   "Shapira",
   "data_dir":      "./data",
-  "photos_dir":    "./photos",
   "caption_model": "gpt-4.1-nano",
   "embed_model":   "text-embedding-3-small",
   "face_tolerance": 0.5,
@@ -152,15 +153,32 @@ family-photos-app/
 }
 ```
 
+A legacy `photos_dir` key is ignored if present (Pydantic `extra="ignore"`), so existing configs do not need a hand-edit, but it can be removed for tidiness.
+
 | Field | Notes |
 |---|---|
 | `family_name` | Used in UI header |
-| `data_dir`, `photos_dir` | Resolved relative to `config.json` if not absolute |
+| `data_dir` | Single filesystem root: DB, photos (`data_dir/photos/`), thumbs, sidecars, anchors. Resolved relative to `config.json` if not absolute |
 | `caption_model` | OpenAI vision model. `gpt-4.1-nano` is current default (cheap) |
 | `embed_model` | Locked once corpus is embedded — change requires `data/chroma/` reset |
 | `face_tolerance` | (Phase 2) face_recognition distance threshold (lower = stricter) |
 | `people[]` | `{id, name}`, optionally `family_id` |
 | `google_name_aliases` | Map Google Photos free-text name (lowercase, Hebrew OK) → `person_id` |
+
+**Env vars (runtime):**
+
+| Var | Default | Notes |
+|---|---|---|
+| `STORAGE_BACKEND` | `local` | `local` (filesystem under `data_dir`) or `r2` (Cloudflare R2) |
+| `R2_ACCOUNT_ID` | — | Required when `STORAGE_BACKEND=r2` |
+| `R2_ACCESS_KEY_ID` | — | Required when `STORAGE_BACKEND=r2` |
+| `R2_SECRET_ACCESS_KEY` | — | Required when `STORAGE_BACKEND=r2` |
+| `R2_BUCKET` | — | Required when `STORAGE_BACKEND=r2` |
+| `ENV_FILE` | _(none)_ | Path to env file to load (e.g. `.env.local`). No file is loaded if unset — set explicitly, never rely on `.env` auto-loading |
+| `VECTOR_BACKEND` | `chroma` | `chroma` (local ChromaDB) or `pgvector` (Postgres + pgvector) |
+| `DATABASE_URL` | SQLite path | Postgres URL for app connections (pooler-safe) |
+| `DATABASE_URL_DIRECT` | — | Direct Postgres URL for Alembic migrations (bypasses PgBouncer) |
+| `OPENAI_API_KEY` | — | Required for caption + embed steps |
 
 ## Common Tasks
 
@@ -189,7 +207,16 @@ The schema is recreated automatically — `init_schema` (called on FastAPI start
 
 ### Database URL
 
-Default: `sqlite:///{data_dir}/photos.db`. Override via `DATABASE_URL` env var (e.g. `sqlite:///:memory:` for tests, or a Postgres URL once Supabase migration lands). The engine is built lazily on first use and cached per-URL.
+Default: `sqlite:///{data_dir}/photos.db`. Override via `DATABASE_URL` (app) or `DATABASE_URL_DIRECT` (Alembic migrations). Engine is built lazily on first use and cached per-URL.
+
+For local Postgres: start the container with `scripts/pg.sh start` (port 5432, DB/user/pass `photos`), then set `DATABASE_URL` + `DATABASE_URL_DIRECT` in `.env.local`. Run Alembic migrations with `ENV_FILE` + `DATABASE_URL_DIRECT` both explicit — no implicit `.env` loading:
+
+```bash
+ENV_FILE=.env.local DATABASE_URL_DIRECT=postgresql+psycopg://photos:photos@localhost:5432/photos \
+  uv run alembic upgrade head
+```
+
+Migration `0002` rewrites absolute `storage_path` values to relative keys. If rows still have absolute paths, run without `STORAGE_MIGRATION_PREFIX` first — it auto-detects the prefix and tells you the correct value to pass.
 
 ### Add a new game type
 1. Create `app/games/{game}.py` (module not yet implemented — see ROADMAP)

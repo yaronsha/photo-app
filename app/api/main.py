@@ -1,9 +1,10 @@
+import io
 import os
 from datetime import date
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
 from sqlalchemy import select
@@ -11,6 +12,8 @@ from sqlalchemy import select
 from ..config import get_settings
 from ..db import Person, Photo, PhotoPerson, get_session, init_schema
 from ..search.query import search as do_search
+from ..storage import get_storage
+from ..storage.base import KeyNotFound
 
 
 def _validate_iso_date(value: str | None, field: str) -> str | None:
@@ -62,7 +65,9 @@ _ensure_dist()
 @app.on_event("startup")
 def startup():
     init_schema()
-    get_settings().thumbs_path.mkdir(parents=True, exist_ok=True)
+    settings = get_settings()
+    (settings.data_dir / "photos").mkdir(parents=True, exist_ok=True)
+    (settings.data_dir / "thumbs").mkdir(parents=True, exist_ok=True)
 
 
 @app.get("/people")
@@ -123,14 +128,26 @@ def search_endpoint(
 
 @app.get("/thumb/{photo_id}")
 def thumb(photo_id: str):
-    storage_path = _resolve_photo_path(photo_id)
-    settings = get_settings()
-    thumb_path = settings.thumbs_path / f"{photo_id}.jpg"
+    with get_session() as session:
+        db_photo = session.get(Photo, photo_id)
 
-    if not thumb_path.exists():
-        _generate_thumb(storage_path, thumb_path)
+    if db_photo is None:
+        raise HTTPException(status_code=404, detail="Photo not found")
 
-    return FileResponse(str(thumb_path), media_type="image/jpeg")
+    _check_key(db_photo.storage_path)
+    storage = get_storage()
+    thumb_key = f"thumbs/{photo_id}.jpg"
+
+    try:
+        if not storage.exists(thumb_key):
+            src_bytes = storage.read_bytes(db_photo.storage_path)
+            thumb_bytes = _make_thumb(src_bytes)
+            storage.write_bytes(thumb_key, thumb_bytes, "image/jpeg")
+        return StreamingResponse(storage.open_stream(thumb_key), media_type="image/jpeg")
+    except KeyNotFound:
+        raise HTTPException(status_code=404, detail="Photo bytes not found")
+    except Exception:
+        raise HTTPException(status_code=502, detail="Storage backend error")
 
 
 @app.get("/photo/{photo_id}/info")
@@ -167,41 +184,47 @@ def photo_info(photo_id: str):
 
 @app.get("/photo/{photo_id}")
 def photo(photo_id: str):
-    storage_path = _resolve_photo_path(photo_id)
-    suffix = storage_path.suffix.lower()
-    media_type = "image/jpeg" if suffix in (".jpg", ".jpeg") else f"image/{suffix.lstrip('.')}"
-    return FileResponse(str(storage_path), media_type=media_type)
-
-
-def _resolve_photo_path(photo_id: str) -> Path:
     with get_session() as session:
-        photo = session.get(Photo, photo_id)
-        storage_path_str = photo.storage_path if photo else None
+        db_photo = session.get(Photo, photo_id)
 
-    if storage_path_str is None:
+    if db_photo is None:
         raise HTTPException(status_code=404, detail="Photo not found")
 
-    settings = get_settings()
-    storage = Path(storage_path_str)
-    real_storage = Path(os.path.realpath(storage))
-    real_photos = Path(os.path.realpath(settings.photos_dir))
+    key = db_photo.storage_path
+    _check_key(key)
+    storage = get_storage()
+    ext = key.rsplit(".", 1)[-1].lower()
+    media_type = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
+    try:
+        return StreamingResponse(storage.open_stream(key), media_type=media_type)
+    except KeyNotFound:
+        raise HTTPException(status_code=404, detail="Photo bytes not found")
+    except Exception:
+        raise HTTPException(status_code=502, detail="Storage backend error")
 
-    if real_storage != real_photos and real_photos not in real_storage.parents:
+
+# storage_path is written by our own indexer, but treat it as untrusted in case
+# a row was hand-edited or restored from a stale dump. Reject anything that
+# isn't a clean key under the photos/ namespace.
+def _check_key(key: str | None) -> None:
+    if not key:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    if not key.startswith("photos/"):
+        raise HTTPException(status_code=403, detail="Access denied")
+    if ".." in key.split("/"):
+        raise HTTPException(status_code=403, detail="Access denied")
+    if "\\" in key:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    if not storage.exists():
-        raise HTTPException(status_code=404, detail="File not found on disk")
 
-    return storage
-
-
-def _generate_thumb(src: Path, dest: Path) -> None:
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    img = Image.open(src)
+def _make_thumb(src_bytes: bytes) -> bytes:
+    img = Image.open(io.BytesIO(src_bytes))
     img = ImageOps.exif_transpose(img)
     img.thumbnail((400, 400))
     img = img.convert("RGB")
-    img.save(str(dest), "JPEG", quality=85)
+    out = io.BytesIO()
+    img.save(out, "JPEG", quality=85)
+    return out.getvalue()
 
 
 app.mount("/static", StaticFiles(directory=str(_DIST_DIR)), name="static")

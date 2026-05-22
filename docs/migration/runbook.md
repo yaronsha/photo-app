@@ -4,16 +4,16 @@ Phase 6. Move existing data + flip to production. Run **after** Phases 1-5 verif
 
 ## Pre-flight
 
-- [ ] Phase 1 done: app runs locally against Supabase + pgvector on a small test set
-- [ ] Phase 2 done: app runs locally against R2 for a small subset
+- [x] Phase 1 done: app runs locally against Supabase + pgvector on a small test set
+- [x] Phase 2 done: app runs locally against R2 for a small subset
 - [ ] Phase 3 done: auth works locally
 - [ ] Phase 4 done: batched indexer endpoint works locally + idempotent on rerun
 - [ ] Phase 5 done: Vercel preview deploys, all endpoints respond
 - [ ] Full backup of `data/photos.db` and `data/chroma/` (rollback)
-- [ ] R2 bucket empty, Supabase schema applied (`alembic upgrade head`)
+- [x] R2 bucket populated, Supabase `storage_path` rewritten to R2 keys (`alembic 0002`)
 - [ ] Vercel env vars all set in Production scope
 
-## Step 1 — Upload to R2
+## ✅ Step 1 — Upload to R2 (done)
 
 `thumbs/` and `sidecars/` are already id-named on disk (`{photo_id}.jpg`, `{photo_id}.json`) — rclone works directly. `photos/` are year-prefixed and original-named (`2020/IMG_1234.JPG`) — **must re-key** during upload using DB lookup to produce `photos/{photo_id}.{ext}`.
 
@@ -34,25 +34,35 @@ rclone sync data/sidecars r2:family-photos-prod/sidecars --transfers 16 --progre
 
 ### 1b. photos via re-keying Python script
 
+Run this **before** Alembic migration `0002` rewrites `storage_path` — it depends on `storage_path` still being an absolute filesystem path. The R2 key produced here MUST match what `0002` will write to the DB, i.e. `photos/{year}/{filename}`. Both steps use the same prefix-strip logic, driven by the same `STORAGE_MIGRATION_PREFIX` env var:
+
 ```python
 # scripts/upload_photos_to_r2.py
-import os, mimetypes
+import mimetypes
+import os
 from pathlib import Path
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from app.db.orm import Photo
-from app.storage import get_storage  # R2 backend
+from app.storage import get_storage  # R2 backend selected via env
 
-engine = create_engine(os.environ["SQLITE_PATH"])  # source SQLite (not Postgres yet)
-storage = get_storage(...)  # R2 configured via env
+prefix = os.environ["STORAGE_MIGRATION_PREFIX"].rstrip("/") + "/"
+engine = create_engine(os.environ["SQLITE_PATH"])
+storage = get_storage()
 
 with Session(engine) as s:
     for photo in s.scalars(select(Photo)):
-        src = Path(photo.storage_path)  # absolute local path
+        src = Path(photo.storage_path)  # absolute local path (pre-0002 only)
         if not src.exists():
             print(f"missing: {photo.id}"); continue
-        ext = src.suffix.lower()  # ".jpg" etc.
-        key = f"photos/{photo.id}{ext}"
+        if not photo.storage_path.startswith(prefix):
+            raise SystemExit(
+                f"row {photo.id} storage_path={photo.storage_path!r} "
+                f"does not start with STORAGE_MIGRATION_PREFIX={prefix!r}"
+            )
+        key = photo.storage_path[len(prefix):]  # e.g. "photos/2014/img.jpg"
+        if not key.startswith("photos/"):
+            raise SystemExit(f"row {photo.id} stripped to {key!r}, not under photos/")
         mime = mimetypes.guess_type(src.name)[0] or "application/octet-stream"
         storage.write_bytes(key, src.read_bytes(), content_type=mime)
 ```
@@ -78,7 +88,7 @@ rclone size r2:family-photos-prod/sidecars
 du -sh data/photos data/thumbs data/sidecars
 ```
 
-## Step 2 — Port metadata SQLite → Supabase Postgres
+## ✅ Step 2 — Port metadata SQLite → Supabase Postgres (done)
 
 Use existing ORM + Core `insert()` for bulk. `bulk_insert_mappings` removed in SQLAlchemy 2.0 — use Core executemany pattern.
 
@@ -121,28 +131,39 @@ uv run python scripts/migrate_sqlite_to_postgres.py
 
 JSONString → JSONB: source `JSONString` TypeDecorator returns Python list/dict on read; psycopg3 + JSONB column accept native dict/list directly via `insert()`. Test on 10 rows before full run (`LIMIT 10` in `select(Model)`).
 
-## Step 3 — Rewrite `Photo.storage_path` → R2 keys
+## ✅ Step 3 — Rewrite `Photo.storage_path` → R2 keys (done)
 
-After Step 1b (upload script wrote `photos/{id}{ext}` keys to R2), update `storage_path` to match:
+After Step 1b uploaded keys of the form `photos/{year}/{filename}` to R2, rewrite the DB column to match. Use the Alembic migration shipped in tree (`migrations/versions/0002_rewrite_storage_path_to_key.py`); it uses the same `STORAGE_MIGRATION_PREFIX` env var as Step 1b, so the keys it computes are guaranteed identical to what was uploaded:
 
-```sql
--- Supabase SQL editor, after Step 2 + 1b complete
-UPDATE photos
-SET storage_path = 'photos/' || id || lower(
-  substring(storage_path from '\.[^.]+$')   -- extract original ext (incl. dot)
-);
+```bash
+# Local SQLite (your dev DB):
+STORAGE_MIGRATION_PREFIX=/Users/yaron/family-photos-app \
+  DATABASE_URL=sqlite:///data/photos.db scripts/migrate.sh upgrade head
+
+# Remote Postgres:
+STORAGE_MIGRATION_PREFIX=/Users/yaron/family-photos-app \
+  DATABASE_URL_DIRECT=postgresql+psycopg://...:5432/...?prepare_threshold=0 \
+  scripts/migrate.sh upgrade head
 ```
 
+Properties of the migration:
+
+- **Idempotent.** Rows already in key form (no leading `/`) are skipped.
+- **Fail-loud.** Any row whose `storage_path` does not start with `STORAGE_MIGRATION_PREFIX` aborts the migration — investigate the row before retrying.
+- **Auto-detect prefix.** If you run without `STORAGE_MIGRATION_PREFIX` and the table contains absolute paths, the migration prints the longest common prefix it observed and aborts; copy that value into the env var and rerun.
+- **No downgrade.** The original absolute prefix is not recorded post-rewrite. Restore from the pre-upgrade backup if you need to revert.
+
 Verify rows match R2 keys exactly (case matters):
+
 ```bash
 rclone lsf r2:family-photos-prod/photos | sort | head -5
 psql "$DATABASE_URL_DIRECT" -c "SELECT storage_path FROM photos ORDER BY id LIMIT 5"
 # every storage_path in DB must exist as R2 key. Spot-check 10 random.
 ```
 
-If extension case differs (`.JPG` vs `.jpg`), align upload script + SQL update — both must use same casing. The upload script in Step 1b normalizes to `src.suffix.lower()`; the SQL `lower()` mirrors this.
+If extension case differs (`.JPG` vs `.jpg`), align upload script + DB values — both must use the same casing.
 
-## Step 4 — Build pgvector embeddings
+## ✅ Step 4 — Build pgvector embeddings (done)
 
 ChromaDB → pgvector. Two paths:
 
@@ -188,7 +209,7 @@ After inserts: HNSW index already created via Alembic migration (see [db.md](db.
 
 **Rollback option:** if pgvector load fails or perf bad, set `VECTOR_BACKEND=chroma` in Vercel env, point at locally-hosted ChromaDB tunnel (cloudflared/tailscale) — or run the whole stack locally with `STORAGE_BACKEND=local VECTOR_BACKEND=chroma`. No code change.
 
-## Step 5 — Smoke test against production
+## ✅ Step 5 — Smoke test against production (done)
 
 Still pointing local app at prod Supabase + prod R2 (not via Vercel yet):
 

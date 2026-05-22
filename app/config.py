@@ -3,12 +3,13 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
-# Load env file: use ENV_FILE if set, otherwise .env
-_env_file = os.environ.get("ENV_FILE", ".env")
-_env_path = Path(__file__).parent.parent / _env_file
-load_dotenv(dotenv_path=_env_path, override=False)
+# Load env file only when ENV_FILE is explicitly set — no implicit .env fallback.
+_env_file = os.environ.get("ENV_FILE")
+if _env_file:
+    _env_path = Path(__file__).parent.parent / _env_file
+    load_dotenv(dotenv_path=_env_path, override=False)
 
 _CONFIG_PATH = Path(__file__).parent.parent / "config.json"
 
@@ -20,12 +21,15 @@ class Person(BaseModel):
 
 
 class Settings(BaseModel):
+    # Ignore deprecated keys (e.g. legacy `photos_dir`) instead of failing.
+    model_config = ConfigDict(extra="ignore")
+
     family_name: str
     data_dir: Path
-    photos_dir: Path
     caption_model: str = "gpt-4o"
     embed_model: str = "text-embedding-3-small"
     face_tolerance: float = 0.5
+    storage_backend: str = "local"
     people: list[Person] = []
     google_name_aliases: dict[str, str] = {}
     openai_api_key: str = ""
@@ -35,8 +39,6 @@ class Settings(BaseModel):
         base = _CONFIG_PATH.parent
         if not self.data_dir.is_absolute():
             self.data_dir = (base / self.data_dir).resolve()
-        if not self.photos_dir.is_absolute():
-            self.photos_dir = (base / self.photos_dir).resolve()
         return self
 
     @property

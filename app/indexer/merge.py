@@ -1,6 +1,5 @@
 import hashlib
 import json
-import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -9,6 +8,7 @@ from sqlalchemy.exc import OperationalError
 
 from ..config import get_settings
 from ..db import Photo, get_session
+from ..storage import get_storage
 
 ACCEPTED_EXTS = {".jpg", ".jpeg", ".png", ".heic"}
 
@@ -74,12 +74,7 @@ def _load_seen_ids(db_path: Path) -> set[str]:
 
 def run_merge(folders: list[Path], dry_run: bool = False) -> dict:
     settings = get_settings()
-    photos_dir = settings.photos_dir
-    sidecars_dir = settings.data_dir / "sidecars"
-
-    if not dry_run:
-        photos_dir.mkdir(parents=True, exist_ok=True)
-        sidecars_dir.mkdir(parents=True, exist_ok=True)
+    storage = get_storage()
 
     seen: set[str] = _load_seen_ids(settings.db_path)
 
@@ -124,24 +119,34 @@ def run_merge(folders: list[Path], dry_run: bool = False) -> dict:
                 or "unknown"
             )
 
-            dest_dir = photos_dir / str(year)
-            dest_name = photo_path.name
-            dest_path = dest_dir / dest_name
+            dest_key = f"photos/{year}/{photo_path.name}"
 
-            if dest_path.exists() and not dry_run:
-                dest_name = f"{photo_id}_{photo_path.name}"
-                dest_path = dest_dir / dest_name
+            # Collision check via the storage backend — `storage.exists(key)`
+            # answers correctly for both LocalStorage and R2Storage. A local-FS
+            # check (data_dir / dest_key).exists() would always be False under
+            # R2 and silently overwrite existing objects.
+            if not dry_run and storage.exists(dest_key):
+                dest_key = f"photos/{year}/{photo_id}_{photo_path.name}"
 
             if dry_run:
-                print(f"  [dry] {photo_path.name} → photos/{year}/{dest_name}")
+                print(f"  [dry] {photo_path.name} → {dest_key}")
             else:
-                dest_dir.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(photo_path, dest_path)
+                photo_bytes = photo_path.read_bytes()
+                storage.write_bytes(dest_key, photo_bytes)
                 if sidecar_data:
-                    (sidecars_dir / f"{photo_id}.json").write_text(
-                        json.dumps(sidecar_data, ensure_ascii=False, indent=2)
+                    sidecar_key = f"sidecars/{photo_id}.json"
+                    storage.write_bytes(
+                        sidecar_key,
+                        json.dumps(sidecar_data, ensure_ascii=False, indent=2).encode(),
+                        "application/json",
                     )
-                items.append((photo_id, dest_path))
+                # items pass the source Takeout path to scan(prehashed=...) so
+                # EXIF can be read from disk. Scan computes its own key from
+                # data_dir, so this path must be inside data_dir — true for
+                # LocalStorage (dest is under data_dir/photos/), but NOT for
+                # R2Storage (bytes only live in the bucket). For r2 the auto
+                # merge→scan pipeline is not yet supported; see ROADMAP.
+                items.append((photo_id, settings.data_dir / dest_key))
 
             merged += 1
             folder_count += 1

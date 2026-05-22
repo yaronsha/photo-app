@@ -2,7 +2,6 @@ import base64
 import io
 import json
 import time
-from pathlib import Path
 
 from openai import AsyncOpenAI, OpenAI
 from PIL import Image
@@ -153,9 +152,8 @@ _PROMPT_TEMPLATE = (
 
 
 class OpenAIProvider:
-    async def caption(self, image_path: Path, location_hint: str | None = None) -> dict:
-        raw = image_path.read_bytes()
-        data, mime = _resize(raw)
+    async def caption(self, image_data: bytes, location_hint: str | None = None) -> dict:
+        data, mime = _resize(image_data)
         b64 = base64.b64encode(data).decode()
 
         location_line = (
@@ -199,8 +197,8 @@ class OpenAIProvider:
         elapsed = time.monotonic() - t0
         usage = resp.usage
         print(
-            f"  [{elapsed:.1f}s] {image_path.name}"
-            + (f" | loc: {location_hint}" if location_hint else "")
+            f"  [{elapsed:.1f}s]"
+            + (f" loc={location_hint}" if location_hint else "")
             + (
                 f" | tokens in={usage.prompt_tokens} out={usage.completion_tokens}"
                 if usage

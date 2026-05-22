@@ -72,7 +72,7 @@ def run_scan(
     settings = get_settings()
     init_schema()
 
-    photos_dir = settings.photos_dir
+    photos_dir = settings.data_dir / "photos"
     if not photos_dir.exists():
         print(f"photos_dir {photos_dir} does not exist — creating empty dir")
         photos_dir.mkdir(parents=True, exist_ok=True)
@@ -95,12 +95,21 @@ def run_scan(
                 skipped += 1
                 continue
 
-            # Path collision: same path, different content — wipe old row first.
-            path_existing = session.execute(
-                select(Photo.id).where(Photo.storage_path == str(path))
+            try:
+                key = str(path.relative_to(settings.data_dir))
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"scan: file {path} is outside data_dir={settings.data_dir} — "
+                    "all photos must live under data_dir for the storage backend "
+                    "to address them by key"
+                ) from exc
+
+            # Key collision: same key, different content — wipe old row first.
+            key_existing = session.execute(
+                select(Photo.id).where(Photo.storage_path == key)
             ).first()
-            if path_existing and path_existing[0] != photo_id:
-                session.execute(delete(Photo).where(Photo.storage_path == str(path)))
+            if key_existing and key_existing[0] != photo_id:
+                session.execute(delete(Photo).where(Photo.storage_path == key))
 
             exif = _extract_exif(path)
             now = datetime.now(timezone.utc).isoformat()
@@ -108,7 +117,7 @@ def run_scan(
             upsert_photo_scan(
                 session,
                 id=photo_id,
-                storage_path=str(path),
+                storage_path=key,
                 original_filename=path.name,
                 taken_at=exif["taken_at"].isoformat() if exif["taken_at"] else None,
                 lat=exif["lat"],

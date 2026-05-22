@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "FILE=$(jq -r '.tool_input.file_path // empty'); if [[ \"$FILE\" =~ \\.env$ ]]; then echo '{\"systemMessage\": \"⚠️ .env contains secrets — blocked from reading\", \"continue\": false}'; exit 1; fi; exit 0"
+            "command": "FILE=$(jq -r '.tool_input.file_path // empty'); if [[ \"$FILE\" =~ \\.env ]] && [[ ! \"$FILE\" =~ \\.env\\.example ]]; then echo '{\"decision\": \"block\", \"reason\": \"secrets file — blocked from reading\"}'; exit 2; fi; exit 0"
           }
         ]
       },
@@ -15,7 +15,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": "FILE=$(jq -r '.tool_input.file_path // empty'); if [[ \"$FILE\" =~ \\.env$ ]]; then echo '{\"systemMessage\": \"⚠️ .env contains secrets — use .env.example instead\", \"continue\": false}'; exit 1; fi; exit 0"
+            "command": "FILE=$(jq -r '.tool_input.file_path // empty'); if [[ \"$FILE\" =~ \\.env ]] && [[ ! \"$FILE\" =~ \\.env\\.example ]]; then echo '{\"decision\": \"block\", \"reason\": \"secrets file — blocked from editing\"}'; exit 2; fi; exit 0"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE=$(jq -r '.tool_input.file_path // empty'); if [[ \"$FILE\" =~ \\.env ]] && [[ ! \"$FILE\" =~ \\.env\\.example ]]; then echo '{\"decision\": \"block\", \"reason\": \"secrets file — blocked from writing\"}'; exit 2; fi; exit 0"
           }
         ]
       },

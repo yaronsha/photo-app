@@ -18,7 +18,18 @@ Replaces stale Phase-1 build plan (now mostly shipped).
 - FastAPI app + vanilla SPA frontend
 - Pytest suite
 
-### 🚧 Phase 2 — Faces (next)
+### 🚧 Cloud Migration — Phases 1-2 (in progress)
+
+Goal: app deployable to Vercel with Supabase Postgres + Cloudflare R2 while still runnable on a laptop.
+
+- ✅ **Phase 1 — DB swap → Supabase Postgres + pgvector** (shipped). See [docs/migration/db.md](migration/db.md).
+- ✅ **Phase 2 — Storage abstraction + R2 backend** (shipped). `Photo.storage_path` repurposed from absolute filesystem path → backend-agnostic key. `app/storage/` package with `LocalStorage` + `R2Storage`, selected by `STORAGE_BACKEND` env var. Alembic migration `0002` rewrites pre-existing rows. See [docs/migration/storage.md](migration/storage.md).
+- ☐ Phase 3 — Auth (Supabase Auth + JWT middleware). See [docs/migration/auth.md](migration/auth.md).
+- ☐ Phase 4 — Compute refactor (dual CLI + HTTP batch). See [docs/migration/compute.md](migration/compute.md).
+- ☐ Phase 5 — Vercel deploy config. See [docs/migration/deploy.md](migration/deploy.md).
+- ☐ Phase 6 — Data cutover (one-time migration). See [docs/migration/runbook.md](migration/runbook.md).
+
+### 🚧 Faces (next product phase)
 
 Goal: detect faces locally, match against per-person anchors, populate `photo_people` for photos without Google tags.
 
@@ -37,7 +48,7 @@ Tasks:
 - [ ] Skip photos already tagged from Google sidecar (don't overwrite higher-trust source)
 - [ ] Update `--step all` to include faces
 
-### 🎮 Phase 3 — Games
+### 🎮 Games (product phase)
 
 No new indexing. Each game = query plugin on existing data.
 
@@ -50,7 +61,7 @@ Tasks:
 - [ ] FastAPI `/games/<type>/round` endpoint
 - [ ] Frontend games view (currently placeholder)
 
-### 📊 Phase 3+ — Scores
+### 📊 Scores (product phase)
 
 LLM- or model-derived per-photo scores stored in SQLite columns.
 
