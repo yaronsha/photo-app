@@ -13,6 +13,7 @@ Architecture and pipeline detail live in [docs/](docs/) — read the relevant do
 | Setup, commands, tests | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
 | Faces | [FACE_RECOGNITION.md](FACE_RECOGNITION.md) |
 | Future work | [docs/ROADMAP.md](docs/ROADMAP.md) |
+| Migration runbooks | [docs/migration/](docs/migration/) |
 
 ## Planning Discipline
 
@@ -76,3 +77,9 @@ Local-first family photo search + games app. Python + FastAPI + SQLite + ChromaD
 - ChromaDB metadata is minimal — only fields needed for pre-filter (`year`).
 
 For full architectural reasoning see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Infrastructure
+
+- **Local dev PG:** `scripts/pg.sh start` — standalone Docker container `family-photos-pg` (port 5432, DB/user/pass `photos`). Not docker-compose.
+- **Test PG:** `docker-compose.test.yml` — `pytest-docker` starts it automatically when running `requires_postgres` tests. Port 5433, DB `photos_test`. No manual `docker compose up` needed.
+- **Alembic migration 0002** — requires `STORAGE_MIGRATION_PREFIX` env var (absolute path prefix to strip). Run without it first to auto-detect prefix from existing rows.
