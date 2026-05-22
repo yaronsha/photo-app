@@ -2,6 +2,15 @@
   "hooks": {
     "PreToolUse": [
       {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE=$(jq -r '.tool_input.file_path // empty'); if [[ \"$FILE\" =~ \\.env$ ]]; then echo '{\"systemMessage\": \"⚠️ .env contains secrets — blocked from reading\", \"continue\": false}'; exit 1; fi; exit 0"
+          }
+        ]
+      },
+      {
         "matcher": "Edit",
         "hooks": [
           {
