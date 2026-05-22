@@ -32,11 +32,10 @@
       ],
       "jinja": true,
       "justMyCode": true,
-      "envFile": "${workspaceFolder}/.env.local.no-secrets",
+      "envFile": "${workspaceFolder}/.env.local",
       "env": {
         "PYTHONPATH": "${workspaceFolder}",
-        "ENV_FILE": ".env.local.no-secrets",
-        "OPENAI_API_KEY": "${localEnv:OPENAI_API_KEY}"
+        "ENV_FILE": ".env.local"
       },
       "console": "integratedTerminal"
     },
