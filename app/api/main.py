@@ -210,11 +210,11 @@ def _check_key(key: str | None) -> None:
     if not key:
         raise HTTPException(status_code=404, detail="Photo not found")
     if not key.startswith("photos/"):
-        raise HTTPException(status_code=404, detail="Photo not found")
+        raise HTTPException(status_code=403, detail="Access denied")
     if ".." in key.split("/"):
-        raise HTTPException(status_code=404, detail="Photo not found")
+        raise HTTPException(status_code=403, detail="Access denied")
     if "\\" in key:
-        raise HTTPException(status_code=404, detail="Photo not found")
+        raise HTTPException(status_code=403, detail="Access denied")
 
 
 def _make_thumb(src_bytes: bytes) -> bytes:
