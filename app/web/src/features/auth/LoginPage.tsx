@@ -14,7 +14,12 @@ export function LoginPage() {
     setError(null);
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin },
+      options: {
+        redirectTo: window.location.origin,
+        // Force Google's account chooser instead of silently reusing the
+        // last-used Google session — lets a different account sign in.
+        queryParams: { prompt: 'select_account' },
+      },
     });
     if (error) {
       setError(error.message);
