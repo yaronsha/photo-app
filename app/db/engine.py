@@ -43,7 +43,12 @@ def get_engine(url: str | None = None) -> Engine:
     if url.startswith("sqlite"):
         connect_args: dict = {"check_same_thread": False, "timeout": 30}
     else:
-        connect_args = {}
+        # Disable psycopg3 server-side prepared statements. Behind a
+        # transaction-mode pooler (PgBouncer/Supabase/Neon) each query may
+        # land on a different backend connection, so a prepared statement
+        # made on one is missing/duplicated on another -> InvalidSqlStatementName
+        # / DuplicatePreparedStatement. None turns auto-prepare off entirely.
+        connect_args = {"prepare_threshold": None}
 
     engine = create_engine(url, connect_args=connect_args)
     _engines[url] = engine
