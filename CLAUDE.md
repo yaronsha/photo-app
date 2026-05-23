@@ -80,6 +80,7 @@ For full architectural reasoning see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md
 
 ## Infrastructure
 
+- **Frontend env split:** Vite loads `app/web/.env*` — NOT the repo-root `.env` the backend reads via `ENV_FILE`. `VITE_*` vars must live under `app/web/`. If missed: frontend auth disabled while backend enforces → blanket 401.
 - **Local dev PG:** `scripts/pg.sh start` — standalone Docker container `family-photos-pg` (port 5432, DB/user/pass `photos`). Not docker-compose.
 - **Test PG:** `docker-compose.test.yml` — `pytest-docker` starts it automatically when running `requires_postgres` tests. Port 5433, DB `photos_test`. No manual `docker compose up` needed.
 - **Alembic migration 0002** — requires `STORAGE_MIGRATION_PREFIX` env var (absolute path prefix to strip). Run without it first to auto-detect prefix from existing rows.

@@ -1,6 +1,8 @@
 import { NavLink } from 'react-router-dom';
+import { signOut } from '../lib/session';
+import type { AuthUser } from '../lib/session';
 
-export function MobileBottomNav() {
+export function MobileBottomNav({ user }: { user?: AuthUser | null }) {
   return (
     <nav className="md:hidden fixed bottom-0 left-0 w-full bg-surface-container-low border-t border-outline-variant flex justify-around items-center py-sm z-50">
       <NavLink
@@ -41,6 +43,26 @@ export function MobileBottomNav() {
           </>
         )}
       </NavLink>
+
+      {user && (
+        <button
+          type="button"
+          onClick={() => signOut()}
+          className="flex flex-col items-center gap-xs text-on-surface-variant"
+        >
+          {user.avatarUrl ? (
+            <img
+              src={user.avatarUrl}
+              alt={user.name ?? user.email ?? 'Account'}
+              referrerPolicy="no-referrer"
+              className="w-6 h-6 rounded-full object-cover"
+            />
+          ) : (
+            <span className="material-symbols-outlined">logout</span>
+          )}
+          <span className="text-[10px] uppercase tracking-tighter">Sign out</span>
+        </button>
+      )}
     </nav>
   );
 }
