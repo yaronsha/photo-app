@@ -179,7 +179,9 @@ A legacy `photos_dir` key is ignored if present (Pydantic `extra="ignore"`), so 
 | `DATABASE_URL` | SQLite path | Postgres URL for app connections (pooler-safe) |
 | `DATABASE_URL_DIRECT` | — | Direct Postgres URL for Alembic migrations (bypasses PgBouncer) |
 | `OPENAI_API_KEY` | — | Required for caption + embed steps |
-| `SUPABASE_JWT_SECRET` | — | Backend HS256 verify key. **Auth is enforced iff this is set.** Unset = local-dev rollback path (all endpoints open) |
+| `SUPABASE_URL` | — | Backend: Supabase project URL (e.g. `https://<ref>.supabase.co`). Used to derive the JWKS endpoint for ES256/RS256 verification — how current Supabase projects sign tokens. **Setting this (or `SUPABASE_JWKS_URL`) enforces auth.** |
+| `SUPABASE_JWKS_URL` | derived from `SUPABASE_URL` | Backend: explicit JWKS endpoint override. Rarely needed |
+| `SUPABASE_JWT_SECRET` | — | Backend: HS256 shared-secret verify key, for legacy/migrated projects that still sign with HS256. **Also enforces auth when set.** Unset *and* no `SUPABASE_URL` = local-dev rollback path (all endpoints open) |
 | `ALLOWED_EMAILS` | — | Comma-separated email allowlist checked against the JWT `email` claim. Required when auth enforced |
 | `CRON_SECRET` | — | Shared bearer for `/api/index-batch` (phase 4). Cron gate is bypassed when unset |
 | `VITE_SUPABASE_URL` | — | Frontend build-time: Supabase project URL. Setting both this and the anon key enables the Google OAuth login gate |

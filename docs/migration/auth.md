@@ -11,12 +11,12 @@ Phase 3. Lock down API + frontend to family allowlist via Google sign-in.
 - API endpoints (JSON) auth via `Authorization: Bearer <jwt>` header
 - **Image endpoints (`/photo/{id}`, `/thumb/{id}`)** use **signed-URL redirect**: handler verifies JWT, then returns 302 to a short-TTL presigned R2 URL. `<img src="/photo/{id}">` follows the redirect transparently — no cookie needed, R2 keys stay hidden, function thread isn't tied up streaming bytes.
 - A `POST /auth/exchange` endpoint exists as a fallback for cookie-based `<img>` auth (`require_auth` already accepts an `sb_jwt` cookie) but is not used by the default flow.
-- FastAPI middleware verifies signature (`SUPABASE_JWT_SECRET`, HS256) + checks `email` claim against `ALLOWED_EMAILS`
+- FastAPI dependency verifies the token signature, then checks the `email` claim against `ALLOWED_EMAILS`. Verification picks the path by the token's `alg`: **ES256/RS256** (current Supabase default) against JWKS public keys fetched from `SUPABASE_URL`; **HS256** (legacy projects) against the `SUPABASE_JWT_SECRET` shared secret. Only configured trust material is honored.
 - Cron endpoints exempt from JWT auth; gated by shared `CRON_SECRET`
 
 ## Opt-in by env var (rollback invariant)
 
-Auth is **off by default**. If `SUPABASE_JWT_SECRET` is unset, `require_auth` is a no-op and every endpoint is open — preserving the local-dev rollback path documented in [README.md](README.md). Setting `SUPABASE_JWT_SECRET` flips enforcement on. Same applies to `CRON_SECRET` for `require_cron`.
+Auth is **off by default**. If neither `SUPABASE_URL` (JWKS/asymmetric) nor `SUPABASE_JWT_SECRET` (HS256) is set, `require_auth` is a no-op and every endpoint is open — preserving the local-dev rollback path documented in [README.md](README.md). Setting either flips enforcement on. Same applies to `CRON_SECRET` for `require_cron`.
 
 This means: existing local CLI + uvicorn workflow continues to work with zero config changes. Vercel deploy sets the env vars → enforcement on.
 
@@ -27,7 +27,7 @@ This means: existing local CLI + uvicorn workflow continues to work with zero co
 3. Settings → API → copy:
    - `Project URL` → `SUPABASE_URL` (backend) / `VITE_SUPABASE_URL` (frontend)
    - `anon public key` → `VITE_SUPABASE_ANON_KEY` (frontend)
-   - `JWT secret` (Settings → API → JWT Settings) → `SUPABASE_JWT_SECRET` (backend)
+   - `SUPABASE_URL` is all the backend needs to verify current ES256/RS256 tokens (JWKS is fetched from it). Only set `SUPABASE_JWT_SECRET` (Settings → API → JWT Settings) if your project still signs with the **legacy HS256 secret**.
 4. Env: `ALLOWED_EMAILS=mom@x.com,dad@x.com,...` (comma-separated, server-side allowlist)
 
 Server-side allowlist matters even if you restrict Google sign-in by Workspace domain — Supabase issues tokens for any Google user that signs in successfully, so the email-claim check is the actual gate.
@@ -46,7 +46,7 @@ Server-side allowlist matters even if you restrict Google sign-in by Workspace d
 
 Two FastAPI dependencies:
 
-- `require_auth(request) -> dict` — verifies the JWT and returns claims, raising 401/403 on rejection. Bearer can come from the `Authorization` header OR the `sb_jwt` cookie. Bypassed when `SUPABASE_JWT_SECRET` is unset.
+- `require_auth(request) -> dict` — verifies the JWT and returns claims, raising 401/403 on rejection. Bearer can come from the `Authorization` header OR the `sb_jwt` cookie. Bypassed when auth is disabled (neither `SUPABASE_URL` nor `SUPABASE_JWT_SECRET` set).
 - `require_cron(request) -> None` — verifies `Authorization: Bearer <CRON_SECRET>` or `X-Cron-Secret`. Bypassed when `CRON_SECRET` unset. Uses `hmac.compare_digest` for constant-time comparison.
 
 JWT verify is ~ms — no caching. Caching introduces a revoked-token-stays-valid window.
@@ -150,7 +150,7 @@ Automated coverage: `tests/test_auth.py` (token rejection paths, allowlist, cook
 
 ## Risks
 
-- **JWT secret in env vs JWKS:** Supabase HS256 default = shared secret. Anyone with `SUPABASE_JWT_SECRET` can mint tokens. Treat as production secret; rotate via Supabase dashboard if leaked.
+- **JWKS vs HS256 secret:** default path is asymmetric (ES256/RS256) — the backend holds only public keys, nothing to leak. If you fall back to HS256, `SUPABASE_JWT_SECRET` is a shared secret: anyone holding it can mint tokens, so treat it as a production secret and rotate via the dashboard if leaked. Prefer the JWKS path.
 - **Cookie + CORS:** Vercel same-origin = fine. If the frontend ever moves to a separate domain, set `SameSite=None; Secure` + `Access-Control-Allow-Credentials`.
 - **Allowlist drift:** `ALLOWED_EMAILS` env list = manual. Adding a person = redeploy. Future: move to Postgres table.
-- **Local `/local/` mount:** unauthenticated by design (dev only). The conditional skip when `SUPABASE_JWT_SECRET` is set prevents accidentally exposing it next to JWT-gated routes.
+- **Local `/local/` mount:** unauthenticated by design (dev only). The conditional skip when auth is enabled (`SUPABASE_URL` or `SUPABASE_JWT_SECRET` set) prevents accidentally exposing it next to JWT-gated routes.

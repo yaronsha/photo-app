@@ -126,7 +126,9 @@ indoor_outdoor, setting_type, sharpness, face_clarity_score
 
 JWT verification via Supabase Auth (Google OAuth). All data endpoints (`/people`, `/search`, `/photo/*`, `/thumb/*`, `/api/me`, `/auth/exchange`) require `Authorization: Bearer <jwt>` or an `sb_jwt` cookie.
 
-Auth is **opt-in**: with `SUPABASE_JWT_SECRET` unset, `require_auth` is a no-op — preserves local-dev rollback path. Setting `SUPABASE_JWT_SECRET` + `ALLOWED_EMAILS` flips enforcement on.
+Tokens are verified by algorithm: **ES256/RS256** (current Supabase default) against the project's JWKS public keys, derived from `SUPABASE_URL`; **HS256** (legacy) against the `SUPABASE_JWT_SECRET` shared secret. Only configured trust material is honored, so the two paths can't be confused.
+
+Auth is **opt-in**: with neither `SUPABASE_URL` (JWKS) nor `SUPABASE_JWT_SECRET` (HS256) set, `require_auth` is a no-op — preserves local-dev rollback path. Setting either + `ALLOWED_EMAILS` flips enforcement on.
 
 Cron endpoints (`/api/index-batch`, phase 4) use `require_cron` instead — `Authorization: Bearer <CRON_SECRET>` or `X-Cron-Secret` header.
 

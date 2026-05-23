@@ -11,6 +11,7 @@ import time
 
 import jwt
 import pytest
+from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi.testclient import TestClient
 
 from .conftest import make_png
@@ -190,6 +191,99 @@ def test_photo_404_when_storage_key_missing(auth_client, tmp_env):
         follow_redirects=False,
     )
     assert resp.status_code == 404
+
+
+# ── asymmetric (ES256 / JWKS) path — how real Supabase tokens are signed ─────
+#
+# Current Supabase projects sign access tokens with ES256 and publish the
+# public keys at a JWKS endpoint. We verify against those keys; the shared
+# secret is irrelevant on this path. `_signing_key` is monkeypatched to the
+# test public key so no network call is made.
+
+_EC_PRIV = ec.generate_private_key(ec.SECP256R1())
+_EC_PUB = _EC_PRIV.public_key()
+_OTHER_PRIV = ec.generate_private_key(ec.SECP256R1())  # untrusted signer
+
+
+def _mint_es256(email: str, *, signer=_EC_PRIV, exp: int | None = None,
+                aud: str = "authenticated") -> str:
+    payload = {
+        "email": email,
+        "sub": "user-" + email,
+        "aud": aud,
+        "exp": exp if exp is not None else int(time.time()) + 600,
+    }
+    return jwt.encode(payload, signer, algorithm="ES256")
+
+
+@pytest.fixture()
+def asym_client(tmp_env, monkeypatch):
+    """TestClient with auth enabled via SUPABASE_URL (ES256/JWKS verify)."""
+    monkeypatch.setenv("SUPABASE_URL", "https://test.supabase.co")
+    monkeypatch.delenv("SUPABASE_JWT_SECRET", raising=False)
+    monkeypatch.setenv("ALLOWED_EMAILS", "ok@example.com,also@example.com")
+    import app.api.auth as auth_mod
+    monkeypatch.setattr(auth_mod, "_signing_key", lambda token, jwks_url: _EC_PUB)
+    import app.api.main as main_mod
+    importlib.reload(main_mod)
+    return TestClient(main_mod.app)
+
+
+def test_es256_valid_token_accepted(asym_client):
+    token = _mint_es256("ok@example.com")
+    resp = asym_client.get("/search", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+
+
+def test_es256_wrong_signer_rejected(asym_client):
+    """Token signed by a key not in the JWKS must fail signature verification."""
+    token = _mint_es256("ok@example.com", signer=_OTHER_PRIV)
+    resp = asym_client.get("/search", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 401
+
+
+def test_es256_expired_rejected(asym_client):
+    token = _mint_es256("ok@example.com", exp=int(time.time()) - 60)
+    resp = asym_client.get("/search", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 401
+    assert "expired" in resp.json()["detail"].lower()
+
+
+def test_es256_wrong_audience_rejected(asym_client):
+    token = _mint_es256("ok@example.com", aud="some-other-app")
+    resp = asym_client.get("/search", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 401
+
+
+def test_es256_non_allowlisted_email_rejected(asym_client):
+    token = _mint_es256("stranger@example.com")
+    resp = asym_client.get("/search", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 403
+
+
+def test_es256_missing_token_rejected(asym_client):
+    resp = asym_client.get("/search")
+    assert resp.status_code == 401
+    assert "bearer" in resp.json()["detail"].lower()
+
+
+def test_hs256_token_rejected_in_asym_mode(asym_client):
+    """No SUPABASE_JWT_SECRET configured → an HS256 token must be refused
+    (guards against algorithm-confusion: only the configured trust material
+    is honored)."""
+    token = _mint("ok@example.com")  # HS256
+    resp = asym_client.get("/search", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 401
+    assert "alg" in resp.json()["detail"].lower()
+
+
+def test_es256_me_endpoint(asym_client):
+    token = _mint_es256("ok@example.com")
+    resp = asym_client.get("/api/me", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["email"] == "ok@example.com"
+    assert body["auth_enabled"] is True
 
 
 # ── cron endpoint ────────────────────────────────────────────────────────────

@@ -14,7 +14,7 @@ from ..db import Person, Photo, PhotoPerson, get_session, init_schema
 from ..search.query import search as do_search
 from ..storage import get_storage
 from ..storage.base import KeyNotFound
-from .auth import require_auth, require_cron
+from .auth import _auth_enabled, require_auth, require_cron
 
 
 def _validate_iso_date(value: str | None, field: str) -> str | None:
@@ -225,7 +225,7 @@ def me(claims: dict = Depends(require_auth)):
     return {
         "email": claims.get("email"),
         "sub": claims.get("sub"),
-        "auth_enabled": bool(os.environ.get("SUPABASE_JWT_SECRET")),
+        "auth_enabled": _auth_enabled(),
     }
 
 
@@ -268,7 +268,7 @@ app.mount("/static", StaticFiles(directory=str(_DIST_DIR)), name="static")
 # we refuse to expose it alongside JWT-gated endpoints.
 if (
     os.environ.get("STORAGE_BACKEND", "local") == "local"
-    and not os.environ.get("SUPABASE_JWT_SECRET")
+    and not _auth_enabled()
 ):
     _local_root = get_settings().data_dir
     _local_root.mkdir(parents=True, exist_ok=True)
