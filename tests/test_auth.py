@@ -104,6 +104,22 @@ def test_allowlist_is_case_insensitive(auth_client):
     assert resp.status_code == 200
 
 
+def test_empty_allowlist_fails_closed(tmp_env, monkeypatch):
+    """Auth enabled but ALLOWED_EMAILS unset → deny everyone (403), never
+    admit any validly-signed token. Guards against a forgotten allowlist
+    silently exposing the library."""
+    monkeypatch.setenv("SUPABASE_JWT_SECRET", JWT_SECRET)
+    monkeypatch.delenv("ALLOWED_EMAILS", raising=False)
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_JWKS_URL", raising=False)
+    import app.api.main as main_mod
+    importlib.reload(main_mod)
+    client = TestClient(main_mod.app)
+    token = _mint("anyone@example.com")
+    resp = client.get("/search", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 403
+
+
 # ── auth enabled, request acceptance ─────────────────────────────────────────
 
 def test_valid_token_via_header(auth_client):

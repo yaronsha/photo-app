@@ -153,4 +153,5 @@ Automated coverage: `tests/test_auth.py` (token rejection paths, allowlist, cook
 - **JWKS vs HS256 secret:** default path is asymmetric (ES256/RS256) — the backend holds only public keys, nothing to leak. If you fall back to HS256, `SUPABASE_JWT_SECRET` is a shared secret: anyone holding it can mint tokens, so treat it as a production secret and rotate via the dashboard if leaked. Prefer the JWKS path.
 - **Cookie + CORS:** Vercel same-origin = fine. If the frontend ever moves to a separate domain, set `SameSite=None; Secure` + `Access-Control-Allow-Credentials`.
 - **Allowlist drift:** `ALLOWED_EMAILS` env list = manual. Adding a person = redeploy. Future: move to Postgres table.
+- **Empty allowlist = deny all:** with auth enabled, an unset/empty `ALLOWED_EMAILS` fails closed (every request 403s) rather than admitting any signed-in Google account. Set `ALLOWED_EMAILS` whenever auth is enabled.
 - **Local `/local/` mount:** unauthenticated by design (dev only). The conditional skip when auth is enabled (`SUPABASE_URL` or `SUPABASE_JWT_SECRET` set) prevents accidentally exposing it next to JWT-gated routes.

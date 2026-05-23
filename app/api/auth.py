@@ -122,7 +122,10 @@ def require_auth(request: Request) -> dict:
 
     allowed = _allowed_emails()
     email = (claims.get("email") or "").lower()
-    if allowed and email not in allowed:
+    # Fail closed: with auth enabled, an empty allowlist denies everyone
+    # rather than admitting any validly-signed token (a forgotten
+    # ALLOWED_EMAILS must not silently expose the library).
+    if not allowed or email not in allowed:
         raise HTTPException(status_code=403, detail="email not allowed")
 
     return claims
