@@ -4,7 +4,7 @@ import { MobileBottomNav } from './layout/MobileBottomNav';
 import { GalleryPage } from './features/gallery/GalleryPage';
 import { GamesPage } from './features/games/GamesPage';
 import { LoginPage } from './features/auth/LoginPage';
-import { useSession } from './lib/session';
+import { useSession, toAuthUser } from './lib/session';
 import { isAuthEnabled } from './lib/supabase';
 
 export function App() {
@@ -22,9 +22,11 @@ export function App() {
     return <LoginPage />;
   }
 
+  const user = toAuthUser(session);
+
   return (
     <div className="bg-background text-on-surface min-h-screen">
-      <SideNav />
+      <SideNav user={user} />
 
       <div className="md:ml-[280px] min-h-screen flex flex-col pb-[60px] md:pb-0">
         <Routes>
@@ -35,7 +37,7 @@ export function App() {
         </Routes>
       </div>
 
-      <MobileBottomNav />
+      <MobileBottomNav user={user} />
     </div>
   );
 }

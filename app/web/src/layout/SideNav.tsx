@@ -1,6 +1,8 @@
 import { NavLink } from 'react-router-dom';
+import { signOut } from '../lib/session';
+import type { AuthUser } from '../lib/session';
 
-export function SideNav() {
+export function SideNav({ user }: { user?: AuthUser | null }) {
   return (
     <aside className="hidden md:flex flex-col h-full p-md gap-lg fixed left-0 top-0 w-[280px] bg-surface-container-low z-50">
       <div className="flex items-center gap-sm px-sm">
@@ -43,6 +45,46 @@ export function SideNav() {
           <span>Games</span>
         </NavLink>
       </nav>
+
+      {user && (
+        <div className="mt-auto flex flex-col gap-sm">
+          <div className="flex items-center gap-sm px-sm py-xs">
+            <AccountAvatar user={user} />
+            <div className="min-w-0">
+              {user.name && (
+                <p className="text-label-md font-bold text-on-surface truncate">{user.name}</p>
+              )}
+              <p className="text-label-md text-on-surface-variant truncate">{user.email}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => signOut()}
+            className="flex items-center gap-md px-md py-sm font-bold rounded-full transition-all duration-200 text-label-md text-on-surface-variant hover:bg-surface-container-high"
+          >
+            <span className="material-symbols-outlined">logout</span>
+            <span>Sign out</span>
+          </button>
+        </div>
+      )}
     </aside>
+  );
+}
+
+function AccountAvatar({ user }: { user: AuthUser }) {
+  if (user.avatarUrl) {
+    return (
+      <img
+        src={user.avatarUrl}
+        alt={user.name ?? user.email ?? 'Account'}
+        referrerPolicy="no-referrer"
+        className="w-9 h-9 rounded-full object-cover shrink-0"
+      />
+    );
+  }
+  return (
+    <div className="w-9 h-9 rounded-full bg-secondary-container flex items-center justify-center shrink-0 text-on-secondary-container">
+      <span className="material-symbols-outlined">account_circle</span>
+    </div>
   );
 }

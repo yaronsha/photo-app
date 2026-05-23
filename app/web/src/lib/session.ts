@@ -7,6 +7,23 @@ export interface SessionState {
   loading: boolean;
 }
 
+/** Display identity for the signed-in user, pulled from Google's claims. */
+export interface AuthUser {
+  email?: string;
+  name?: string;
+  avatarUrl?: string;
+}
+
+export function toAuthUser(session: Session | null): AuthUser | null {
+  if (!session?.user) return null;
+  const m = (session.user.user_metadata ?? {}) as Record<string, string>;
+  return {
+    email: session.user.email ?? m.email,
+    name: m.full_name ?? m.name,
+    avatarUrl: m.avatar_url ?? m.picture,
+  };
+}
+
 // `<img src="/thumb/..">` / `<img src="/photo/..">` can't send an
 // Authorization header, so we mirror the access token into a non-HttpOnly
 // `sb_jwt` cookie that the browser attaches automatically. The backend's
