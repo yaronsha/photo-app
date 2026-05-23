@@ -46,10 +46,19 @@ uv run uvicorn app.api.main:app --reload --port 8000
 # Terminal 1
 uv run uvicorn app.api.main:app --reload --port 8000
 
-# Terminal 2 — Vite dev server, proxies /people /search /thumb /photo to :8000
+# Terminal 2 — Vite dev server, proxies /people /search /thumb /photo /api to :8000
 cd app/web && npm run dev
 # open http://localhost:5173
 ```
+
+> **Frontend env:** `VITE_*` vars must live in `app/web/.env*` — Vite ignores the
+> repo-root `.env` the backend reads via `ENV_FILE`. Splitting them (backend auth
+> on, frontend auth off) yields a blanket 401.
+>
+> **Dev proxy is an allowlist:** `vite.config.ts` `server.proxy` only forwards the
+> listed paths to `:8000`. Add any new backend path the SPA calls (e.g. `/api/me`)
+> or it 404s against Vite. Proxy/config changes are not hot-reloaded — restart the
+> dev server.
 
 ### Indexer
 ```bash
