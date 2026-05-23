@@ -22,6 +22,26 @@ async function apiFetch<T>(path: string): Promise<T> {
   return resp.json() as Promise<T>;
 }
 
+export interface Me {
+  email?: string;
+  sub?: string;
+  auth_enabled: boolean;
+}
+
+/** Authorization probe: 200 = allowed, 403 = email not in allowlist.
+ *  Rejects with an Error carrying `.status` so callers can distinguish a
+ *  hard "not allowed" (403) from a transient failure. */
+export async function fetchMe(): Promise<Me> {
+  const headers = await authHeaders();
+  const resp = await fetch(`${BASE}/api/me`, { headers });
+  if (!resp.ok) {
+    const err = new Error(`API error ${resp.status}`) as Error & { status?: number };
+    err.status = resp.status;
+    throw err;
+  }
+  return resp.json() as Promise<Me>;
+}
+
 export function fetchPeople(): Promise<Person[]> {
   return apiFetch<Person[]>('/people');
 }
