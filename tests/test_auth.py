@@ -293,6 +293,22 @@ def test_hs256_token_rejected_in_asym_mode(asym_client):
     assert "alg" in resp.json()["detail"].lower()
 
 
+def test_jwks_unreachable_returns_401_and_logs(asym_client, monkeypatch, caplog):
+    """JWKS endpoint down → 401, and an ERROR is logged so the operator can
+    tell an infra outage apart from per-token rejections."""
+    import app.api.auth as auth_mod
+
+    def _boom(token, jwks_url):
+        raise jwt.PyJWKClientConnectionError("connection refused")
+
+    monkeypatch.setattr(auth_mod, "_signing_key", _boom)
+    token = _mint_es256("ok@example.com")
+    with caplog.at_level("ERROR", logger="app.api.auth"):
+        resp = asym_client.get("/search", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 401
+    assert "JWKS endpoint unreachable" in caplog.text
+
+
 def test_es256_me_endpoint(asym_client):
     token = _mint_es256("ok@example.com")
     resp = asym_client.get("/api/me", headers={"Authorization": f"Bearer {token}"})

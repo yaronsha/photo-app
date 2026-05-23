@@ -26,10 +26,13 @@ Cron endpoints use `require_cron` instead — shared bearer in
 from __future__ import annotations
 
 import hmac
+import logging
 import os
 
 import jwt
 from fastapi import HTTPException, Request
+
+logger = logging.getLogger(__name__)
 
 _ASYM_ALGS = ("ES256", "RS256")
 
@@ -115,6 +118,12 @@ def require_auth(request: Request) -> dict:
         claims = _decode(token)
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="token expired")
+    except jwt.PyJWKClientConnectionError as exc:
+        # JWKS endpoint unreachable: an infra outage, not a bad token. Every
+        # authenticated request fails until it recovers, so log at ERROR so
+        # the operator can tell this apart from per-token 401s.
+        logger.error("auth: JWKS endpoint unreachable (%s): %s", _jwks_url(), exc)
+        raise HTTPException(status_code=401, detail="could not fetch signing key")
     except jwt.PyJWKClientError as exc:
         raise HTTPException(status_code=401, detail=f"could not fetch signing key: {exc}")
     except jwt.PyJWTError as exc:
