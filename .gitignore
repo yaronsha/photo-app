@@ -17,3 +17,7 @@ photos.bak.*.db
 app/web/.vite/
 app/web/test-results/
 .claude/settings.local.json
+
+# Cloudflare Worker — generated/regenerated artifacts
+.wrangler/
+worker-configuration.d.ts

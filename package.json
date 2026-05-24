@@ -1,0 +1,18 @@
+{
+  "name": "family-photos-worker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Cloudflare Worker that fronts the API container + static assets. Frontend lives in app/web (its own package.json).",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "^0.3.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260524.1",
+    "wrangler": "^4.94.0"
+  }
+}

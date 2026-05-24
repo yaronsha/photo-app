@@ -67,8 +67,12 @@ _ensure_dist()
 def startup():
     init_schema()
     settings = get_settings()
-    (settings.data_dir / "photos").mkdir(parents=True, exist_ok=True)
-    (settings.data_dir / "thumbs").mkdir(parents=True, exist_ok=True)
+    # Local-dev scratch dirs only. With STORAGE_BACKEND=r2 these are unused,
+    # and the host FS may be read-only — skip to avoid crashing startup on an
+    # mkdir against a read-only path. (Container serves API-only with R2.)
+    if settings.storage_backend == "local":
+        (settings.data_dir / "photos").mkdir(parents=True, exist_ok=True)
+        (settings.data_dir / "thumbs").mkdir(parents=True, exist_ok=True)
 
 
 @app.get("/people")
@@ -246,6 +250,18 @@ def _check_key(key: str | None) -> None:
         raise HTTPException(status_code=403, detail="Access denied")
     if "\\" in key:
         raise HTTPException(status_code=403, detail="Access denied")
+
+
+# HEIC originals (merge.py accepts .heic) reach _make_thumb when a thumb is
+# generated on demand. Pillow needs the HEIF opener registered to decode them;
+# scan.py does this for the indexer, but the API serving path imports neither.
+# Best-effort: if pillow-heif is absent, JPEG/PNG thumbs still work.
+try:
+    import pillow_heif
+
+    pillow_heif.register_heif_opener()
+except ImportError:
+    pass
 
 
 def _make_thumb(src_bytes: bytes) -> bytes:

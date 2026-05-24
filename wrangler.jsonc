@@ -1,0 +1,27 @@
+{
+  "name": "family-photos",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-05-01",
+
+  "containers": [
+    {
+      "class_name": "ApiContainer",
+      "image": "./Dockerfile",
+      "instance_type": "standard-1",   // 4 GiB / 0.5 vCPU — safe for HEIC decode
+      "max_instances": 2
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "class_name": "ApiContainer", "name": "API_CONTAINER" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ApiContainer"] }],
+
+  "assets": {
+    "directory": "app/web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/search", "/people", "/photo/*", "/thumb/*", "/auth/*", "/api/*"
+    ]
+  }
+}

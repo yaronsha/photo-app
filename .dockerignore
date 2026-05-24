@@ -1,0 +1,18 @@
+# Plan list (docs/migration/cloudflare.md): keep heavy local-only data out of
+# the build context so the image stays small and never bakes secrets.
+data/
+photos/
+*.db
+.venv
+app/web/node_modules
+
+# Not part of the API image
+.git
+.github
+.claude
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+.env.*
+app/web/dist
