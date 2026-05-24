@@ -5,10 +5,10 @@ import { Container, getContainer } from "@cloudflare/containers";
 // to the Worker's `env`, but the container is a separate sandbox whose env is
 // only `Dockerfile ENV + this.envVars`. Without this bridge the API sees no
 // DATABASE_URL and (used to) silently fall back to an empty sqlite db.
+// VECTOR_BACKEND/STORAGE_BACKEND are intentionally omitted — they are baked
+// into the Dockerfile ENV. Only secrets with no image-level default belong here.
 const CONTAINER_ENV_KEYS = [
   "DATABASE_URL",
-  "VECTOR_BACKEND",
-  "STORAGE_BACKEND",
   "R2_ACCOUNT_ID",
   "R2_ACCESS_KEY_ID",
   "R2_SECRET_ACCESS_KEY",
