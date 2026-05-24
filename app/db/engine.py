@@ -28,6 +28,17 @@ def _default_url() -> str:
     env_url = os.environ.get("DATABASE_URL")
     if env_url:
         return env_url
+    # No DATABASE_URL: sqlite is the legitimate local-dev default, but ONLY for
+    # the chroma backend. pgvector requires Postgres, so a missing URL there is a
+    # misconfiguration (e.g. Worker secrets never bridged into the container) —
+    # fail loud instead of silently serving an empty sqlite db.
+    if os.environ.get("VECTOR_BACKEND") == "pgvector":
+        raise RuntimeError(
+            "DATABASE_URL is not set but VECTOR_BACKEND=pgvector. Postgres is "
+            "required for the pgvector backend; refusing to fall back to sqlite. "
+            "Set DATABASE_URL in the runtime env (in the container: pass it via "
+            "the Worker's envVars — Worker secrets are not auto-forwarded)."
+        )
     settings = get_settings()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     return f"sqlite:///{settings.db_path}"

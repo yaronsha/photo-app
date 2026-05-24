@@ -1,5 +1,5 @@
 {
-  "name": "family-photos",
+  "name": "photo-app",
   "main": "worker/index.ts",
   "compatibility_date": "2026-05-01",
 
