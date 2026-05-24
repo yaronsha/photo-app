@@ -32,9 +32,10 @@ Move the app from laptop-only (SQLite + ChromaDB + local files) to Vercel-hosted
 | 1 | DB swap → Supabase Postgres + pgvector | [db.md](db.md) | ✅ |
 | 2 | Storage abstraction + R2 backend | [storage.md](storage.md) | ✅ |
 | 3 | Auth (Supabase Auth + JWT middleware) | [auth.md](auth.md) | ✅ |
-| 4 | Compute refactor (dual CLI + HTTP batch) | [compute.md](compute.md) | ☐ |
-| 5 | Vercel deploy config | [deploy.md](deploy.md) | ☐ |
-| 6 | Data cutover (one-time migration) | [runbook.md](runbook.md) | ☐ |
+| 4 | Compute refactor (dual CLI + HTTP batch) | [compute.md](compute.md) | ☐ deferred |
+| 5 | Deploy → Cloudflare (container + Worker assets) | [cloudflare.md](cloudflare.md) | ☐ |
+| 5~~old~~ | ~~Vercel deploy config~~ — abandoned (250 MB fn limit) | [deploy.md](deploy.md) | ✗ |
+| 6 | Data cutover (one-time migration) | [runbook.md](runbook.md) | ✅ |
 
 `R2_ENDPOINT` env var **not needed** — derived from `R2_ACCOUNT_ID` in `R2Storage.__init__`. Don't add it.
 
