@@ -1,0 +1,20 @@
+# Vercel API function deps ONLY. Generated/curated from pyproject.toml.
+# Indexer-only + rollback deps are intentionally excluded to stay under the
+# Vercel 250MB unzipped function limit. They are NOT imported by the API
+# serving path (verified: chroma/heif/exif/geocoder are all lazy/out-of-path):
+#   chromadb           — VECTOR_BACKEND=pgvector in prod; lazy-imported only for chroma
+#   exifread           — indexer only
+#   reverse_geocoder   — indexer only (30MB data file)
+#   alembic            — migrations run locally via DATABASE_URL_DIRECT, not at runtime
+#   uvicorn            — Vercel supplies the ASGI server
+fastapi
+openai
+Pillow
+pillow-heif
+pydantic>=2
+python-dotenv
+sqlalchemy>=2,<3
+psycopg[binary]>=3.2
+pgvector>=0.3
+boto3>=1.34
+pyjwt[crypto]>=2.9
