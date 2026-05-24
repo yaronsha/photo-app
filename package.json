@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Cloudflare Worker that fronts the API container + static assets. Frontend lives in app/web (its own package.json).",
   "scripts": {
+    "build": "cd app/web && npm ci && npm run build",
     "deploy": "wrangler deploy",
     "cf-typegen": "wrangler types"
   },
