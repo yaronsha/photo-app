@@ -20,6 +20,27 @@ def get_storage() -> Storage:
     return _storage
 
 
+_R2_VARS = ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET")
+
+
+def _require_r2_env() -> dict[str, str]:
+    """Read all R2_* vars, failing loud and naming every missing one.
+
+    A bare ``os.environ["R2_BUCKET"]`` KeyError is cryptic and surfaces only
+    on the first object access. With STORAGE_BACKEND=r2 a missing secret is a
+    deploy misconfiguration (e.g. a Worker secret never bridged into the
+    container) — raise an actionable message up front instead.
+    """
+    missing = [name for name in _R2_VARS if not os.environ.get(name)]
+    if missing:
+        raise RuntimeError(
+            f"STORAGE_BACKEND=r2 but required env var(s) unset: {', '.join(missing)}. "
+            "Set them in the runtime env (in the container: bridge them via the "
+            "Worker's envVars — Worker secrets are not auto-forwarded)."
+        )
+    return {name: os.environ[name] for name in _R2_VARS}
+
+
 def _create_storage() -> Storage:
     backend = os.getenv("STORAGE_BACKEND", "local")
     if backend == "local":
@@ -30,11 +51,12 @@ def _create_storage() -> Storage:
     if backend == "r2":
         from .r2 import R2Storage
 
+        env = _require_r2_env()
         return R2Storage(
-            account_id=os.environ["R2_ACCOUNT_ID"],
-            access_key=os.environ["R2_ACCESS_KEY_ID"],
-            secret_key=os.environ["R2_SECRET_ACCESS_KEY"],
-            bucket=os.environ["R2_BUCKET"],
+            account_id=env["R2_ACCOUNT_ID"],
+            access_key=env["R2_ACCESS_KEY_ID"],
+            secret_key=env["R2_SECRET_ACCESS_KEY"],
+            bucket=env["R2_BUCKET"],
         )
     raise ValueError(f"Unknown STORAGE_BACKEND={backend!r}. Use 'local' or 'r2'.")
 

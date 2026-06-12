@@ -1,10 +1,11 @@
 import io
+import logging
 import os
 from datetime import date
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
 from sqlalchemy import select
@@ -15,6 +16,12 @@ from ..search.query import search as do_search
 from ..storage import get_storage
 from ..storage.base import KeyNotFound
 from .auth import _auth_enabled, require_auth, require_cron
+from .logging_config import configure_logging
+
+# Install JSON logging before uvicorn wires its own text handlers, so
+# tracebacks land as one log entry instead of one-per-line in Cloudflare.
+configure_logging()
+logger = logging.getLogger("app.api")
 
 
 def _validate_iso_date(value: str | None, field: str) -> str | None:
@@ -27,6 +34,18 @@ def _validate_iso_date(value: str | None, field: str) -> str | None:
     return value
 
 app = FastAPI(title="Family Photos")
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exc(request: Request, exc: Exception) -> JSONResponse:
+    """Log any unhandled error as one JSON entry (with request context) and
+    return an opaque 500. `logger.exception` attaches exc_info, which the
+    JSON formatter renders into a single `traceback` field."""
+    logger.exception(
+        "unhandled request error",
+        extra={"path": request.url.path, "method": request.method},
+    )
+    return JSONResponse(status_code=500, content={"detail": "internal server error"})
 
 _WEB_DIR = Path(__file__).parent.parent / "web"
 _DIST_DIR = _WEB_DIR / "dist"
