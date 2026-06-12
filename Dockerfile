@@ -12,6 +12,8 @@ RUN uv sync --frozen --no-dev
 
 ENV STORAGE_BACKEND=r2 \
     VECTOR_BACKEND=pgvector \
-    FAMILY_PHOTOS_ALLOW_MISSING_FRONTEND=1
+    FAMILY_PHOTOS_ALLOW_MISSING_FRONTEND=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONFAULTHANDLER=1
 EXPOSE 8000
 CMD ["uv", "run", "uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
