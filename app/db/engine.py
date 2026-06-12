@@ -44,9 +44,26 @@ def _default_url() -> str:
     return f"sqlite:///{settings.db_path}"
 
 
+def _normalize_pg_driver(url: str) -> str:
+    """Force the psycopg3 driver for Postgres URLs.
+
+    psycopg2 is not installed (pyproject pins `psycopg[binary]>=3.2`), but
+    SQLAlchemy defaults the bare `postgresql://` / `postgres://` schemes to
+    the psycopg2 dialect -> ModuleNotFoundError at connect, which crashes the
+    container at startup. Supabase/Neon hand out bare-scheme URLs, so coerce
+    them to `postgresql+psycopg://` rather than trusting the secret's format.
+    URLs that already name a driver (e.g. `postgresql+psycopg://`) pass through.
+    """
+    for prefix in ("postgresql://", "postgres://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
 def get_engine(url: str | None = None) -> Engine:
     if url is None:
         url = _default_url()
+    url = _normalize_pg_driver(url)
     cached = _engines.get(url)
     if cached is not None:
         return cached
