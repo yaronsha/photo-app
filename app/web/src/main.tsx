@@ -4,6 +4,11 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import './styles/index.css';
 import { App } from './App';
+import { captureAndScrubAuthRedirect } from './lib/authRedirect';
+
+// Scrub any Supabase OAuth error from the URL before React paints, so the
+// verbose `error_description` never renders in the address bar.
+captureAndScrubAuthRedirect();
 
 const queryClient = new QueryClient({
   defaultOptions: {

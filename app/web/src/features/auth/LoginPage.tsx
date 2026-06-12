@@ -1,8 +1,20 @@
 import { useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import { getAuthRedirectError } from '../../lib/authRedirect';
+
+// Generic, detail-free messages. We deliberately do NOT surface Supabase's
+// `error_description` (it leaks backend detail); the specifics were scrubbed
+// from the URL on load.
+const REDIRECT_MESSAGES = {
+  denied: 'Sign-in was cancelled.',
+  failed: 'Sign-in failed. Please try again.',
+} as const;
 
 export function LoginPage() {
-  const [error, setError] = useState<string | null>(null);
+  const redirect = getAuthRedirectError();
+  const [error, setError] = useState<string | null>(
+    redirect === 'none' ? null : REDIRECT_MESSAGES[redirect],
+  );
   const [loading, setLoading] = useState(false);
 
   const signInWithGoogle = async () => {
