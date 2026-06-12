@@ -21,11 +21,10 @@ from datetime import datetime, timezone
 # multi-line text).
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
 
-# Attributes present on every LogRecord — anything *not* here was passed via
-# `extra=` and is worth surfacing as a top-level JSON field.
-_RESERVED = set(
-    logging.makeLogRecord({}).__dict__
-) | {"message", "asctime", "taskName"}
+# Structured fields callers attach via logging's `extra=`; promoted to
+# top-level JSON keys when present. Add new keys here as call sites grow —
+# cheaper than scanning every record's __dict__ on the logging hot path.
+_EXTRA_FIELDS = ("path", "method")
 
 
 class JsonFormatter(logging.Formatter):
@@ -38,10 +37,9 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "msg": record.getMessage(),
         }
-        # Promote `extra=` fields (e.g. path/method) to top level.
-        for key, value in record.__dict__.items():
-            if key not in _RESERVED and not key.startswith("_"):
-                payload[key] = value
+        for key in _EXTRA_FIELDS:
+            if key in record.__dict__:
+                payload[key] = record.__dict__[key]
         if record.exc_info:
             # Single string — json.dumps escapes the embedded newlines.
             payload["traceback"] = self.formatException(record.exc_info)
