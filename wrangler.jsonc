@@ -5,7 +5,8 @@
 
   "vars": {
     "R2_BUCKET": "shapira-photos-prod",
-    "SUPABASE_URL": "https://fabwkemyxbcyisouswfv.supabase.co"
+    "SUPABASE_URL": "https://fabwkemyxbcyisouswfv.supabase.co",
+    "ALLOWED_EMAILS": "yaron.shapira7@gmail.com,avish63@gmail.com,noa0098@gmail.com,etish65@gmail.com"
   },
 
   "observability": {
