@@ -22,6 +22,10 @@ const SUGGESTIONS = [
 export function GalleryPage() {
   const [q, setQ] = useSearchParamString('q');
   const [inputQ, setInputQ] = useState(() => q);
+
+  useEffect(() => {
+    setInputQ(q);
+  }, [q]);
   const [dateFrom] = useSearchParamString('date_from');
   const [dateTo] = useSearchParamString('date_to');
   const [, setSearchParams] = useSearchParams();
@@ -131,7 +135,7 @@ export function GalleryPage() {
 
   return (
     <>
-      <TopBar query={inputQ} onQueryChange={setInputQ} onSearch={handleSearch} />
+      <TopBar query={inputQ} onQueryChange={setInputQ} onSearch={handleSearch} isPending={inputQ.trim() !== q} />
 
       <main className="flex-1 px-margin-mobile md:px-margin-desktop py-lg">
         {/* Filters Header */}

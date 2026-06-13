@@ -2,9 +2,12 @@ interface TopBarProps {
   query: string;
   onQueryChange: (v: string) => void;
   onSearch: () => void;
+  isPending: boolean;
 }
 
-export function TopBar({ query, onQueryChange, onSearch }: TopBarProps) {
+export function TopBar({ query, onQueryChange, onSearch, isPending }: TopBarProps) {
+  const showArrow = query.trim().length > 0;
+
   return (
     <header className="flex justify-between items-center px-margin-mobile md:px-margin-desktop py-md w-full sticky top-0 bg-surface z-40 border-b border-outline-variant">
       <div className="flex items-center gap-lg flex-1">
@@ -26,8 +29,21 @@ export function TopBar({ query, onQueryChange, onSearch }: TopBarProps) {
             onKeyDown={e => { if (e.key === 'Enter') onSearch(); }}
             placeholder="Search your archive"
             aria-label="Search photos"
-            className="w-full bg-surface-container-low border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary rounded-xl py-sm pl-[48px] pr-md text-body-md transition-all outline-none"
+            className="w-full bg-surface-container-low border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary rounded-xl py-sm pl-[48px] pr-[40px] text-body-md transition-all outline-none"
           />
+          {showArrow && (
+            <button
+              type="submit"
+              aria-label="Submit search"
+              className={`absolute right-sm top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-full transition-all ${
+                isPending
+                  ? 'text-primary hover:bg-primary/10'
+                  : 'text-on-surface-variant opacity-40 hover:opacity-60'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[20px]">arrow_forward</span>
+            </button>
+          )}
         </form>
       </div>
       <div className="flex items-center gap-md ml-lg">
