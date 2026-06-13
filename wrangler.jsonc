@@ -3,6 +3,11 @@
   "main": "worker/index.ts",
   "compatibility_date": "2026-05-01",
 
+  "vars": {
+    "R2_BUCKET": "shapira-photos-prod",
+    "SUPABASE_URL": "https://fabwkemyxbcyisouswfv.supabase.co"
+  },
+
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
