@@ -18,8 +18,7 @@ from ..storage.base import KeyNotFound
 from .auth import _auth_enabled, require_auth, require_cron
 from .logging_config import configure_logging
 
-# Install JSON logging before uvicorn wires its own text handlers, so
-# tracebacks land as one log entry instead of one-per-line in Cloudflare.
+# Must run before uvicorn wires its own handlers.
 configure_logging()
 logger = logging.getLogger("app.api")
 
@@ -38,9 +37,7 @@ app = FastAPI(title="Family Photos")
 
 @app.exception_handler(Exception)
 async def _unhandled_exc(request: Request, exc: Exception) -> JSONResponse:
-    """Log any unhandled error as one JSON entry (with request context) and
-    return an opaque 500. `logger.exception` attaches exc_info, which the
-    JSON formatter renders into a single `traceback` field."""
+    """Log unhandled errors with request context, return an opaque 500."""
     logger.exception(
         "unhandled request error",
         extra={"path": request.url.path, "method": request.method},

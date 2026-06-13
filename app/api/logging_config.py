@@ -1,13 +1,8 @@
-"""Single-line JSON logging for the container.
+"""Single-line JSON logging.
 
-Cloudflare Workers Logs captures container stdout **per physical line** —
-a multi-line Python traceback becomes one log entry per frame, which is
-unreadable and unsearchable. We emit one JSON object per record instead:
-the traceback lives in a single string field, so `json.dumps` escapes its
-newlines to `\\n` and the whole record stays on one line = one entry.
-
-`configure_logging()` is idempotent and must run before uvicorn installs
-its own handlers (call it at import time in `main`).
+Cloudflare Workers Logs splits container stdout per line, so a multi-line
+traceback becomes one entry per frame. Emitting one JSON record per line
+keeps each traceback to a single entry (json escapes the newlines).
 """
 from __future__ import annotations
 
@@ -16,14 +11,9 @@ import logging
 import sys
 from datetime import datetime, timezone
 
-# uvicorn attaches its own StreamHandlers to these; we replace them so every
-# record flows through the JSON formatter (otherwise access/error logs stay
-# multi-line text).
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
 
-# Structured fields callers attach via logging's `extra=`; promoted to
-# top-level JSON keys when present. Add new keys here as call sites grow —
-# cheaper than scanning every record's __dict__ on the logging hot path.
+# Promoted to top-level JSON keys when passed via logging's extra=.
 _EXTRA_FIELDS = ("path", "method")
 
 
@@ -41,7 +31,6 @@ class JsonFormatter(logging.Formatter):
             if key in record.__dict__:
                 payload[key] = record.__dict__[key]
         if record.exc_info:
-            # Single string — json.dumps escapes the embedded newlines.
             payload["traceback"] = self.formatException(record.exc_info)
         if record.stack_info:
             payload["stack"] = self.formatStack(record.stack_info)
@@ -56,7 +45,7 @@ def configure_logging(level: int = logging.INFO) -> None:
     root.handlers = [handler]
     root.setLevel(level)
 
-    # Detach uvicorn's text handlers; let records propagate to root's JSON one.
+    # Detach uvicorn's own handlers so records reach root's JSON one.
     for name in _UVICORN_LOGGERS:
         lg = logging.getLogger(name)
         lg.handlers = []

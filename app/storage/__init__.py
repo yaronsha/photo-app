@@ -24,19 +24,12 @@ _R2_VARS = ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUC
 
 
 def _require_r2_env() -> dict[str, str]:
-    """Read all R2_* vars, failing loud and naming every missing one.
-
-    A bare ``os.environ["R2_BUCKET"]`` KeyError is cryptic and surfaces only
-    on the first object access. With STORAGE_BACKEND=r2 a missing secret is a
-    deploy misconfiguration (e.g. a Worker secret never bridged into the
-    container) — raise an actionable message up front instead.
-    """
+    """Fail loud naming every unset R2_* var, instead of a late KeyError."""
     missing = [name for name in _R2_VARS if not os.environ.get(name)]
     if missing:
         raise RuntimeError(
             f"STORAGE_BACKEND=r2 but required env var(s) unset: {', '.join(missing)}. "
-            "Set them in the runtime env (in the container: bridge them via the "
-            "Worker's envVars — Worker secrets are not auto-forwarded)."
+            "In the container, bridge them via the Worker's envVars."
         )
     return {name: os.environ[name] for name in _R2_VARS}
 
