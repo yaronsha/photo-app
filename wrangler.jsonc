@@ -3,6 +3,15 @@
   "main": "worker/index.ts",
   "compatibility_date": "2026-05-01",
 
+  // Non-secret runtime config. Lives here (not the dashboard) because plaintext
+  // vars set in the UI are owned by the deploy config and get cleared on the
+  // next `wrangler deploy`. Secrets (R2 creds, DATABASE_URL) persist separately.
+  // Bridged into the container by worker/index.ts pickEnv().
+  "vars": {
+    "R2_BUCKET": "shapira-photos-prod",
+    "SUPABASE_URL": "https://fabwkemyxbcyisouswfv.supabase.co"
+  },
+
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
