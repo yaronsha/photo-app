@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
-from datetime import datetime, timezone
+import time
 
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
 
@@ -19,10 +19,9 @@ _EXTRA_FIELDS = ("path", "method")
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
+        ts = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created))
         payload: dict[str, object] = {
-            "ts": datetime.fromtimestamp(record.created, timezone.utc)
-            .isoformat(timespec="milliseconds")
-            .replace("+00:00", "Z"),
+            "ts": f"{ts}.{int(record.msecs):03d}Z",
             "level": record.levelname,
             "logger": record.name,
             "msg": record.getMessage(),
