@@ -9,15 +9,17 @@ from botocore.exceptions import ClientError
 from .base import KeyNotFound, Storage
 
 
-# S3-compatible "object missing" indicators. HeadObject responses have no
-# body, so botocore can populate the Code field as "" with HTTPStatusCode=404
-# — always check both.
-_MISSING_CODES = {"404", "NoSuchKey", "NotFound", "NoSuchBucket"}
+# Object-missing indicators. HeadObject has no body, so botocore may set
+# Code "" with HTTPStatusCode 404 — check both.
+_MISSING_CODES = {"404", "NoSuchKey", "NotFound"}
 
 
 def _is_not_found(exc: ClientError) -> bool:
     code = exc.response.get("Error", {}).get("Code", "")
     status = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+    # NoSuchBucket is a config error also served as 404 — not a missing object.
+    if code == "NoSuchBucket":
+        return False
     return status == 404 or code in _MISSING_CODES
 
 
