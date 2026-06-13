@@ -1,4 +1,5 @@
 import { Container, getContainer } from "@cloudflare/containers";
+import { handleThumb } from "./thumb";
 
 // Secrets/vars to forward from the Worker isolate into the container process.
 // Cloudflare does NOT auto-forward these: `wrangler secret put` binds a value
@@ -39,8 +40,18 @@ export class ApiContainer extends Container {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    // Only run_worker_first paths reach here; forward them to the container.
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // /thumb/* is served from the R2 binding + edge cache in this isolate,
+    // bypassing the container (issue #51). Auth is enforced inside handleThumb.
+    // The container is only the rare fall-through for not-yet-generated thumbs.
+    const url = new URL(request.url);
+    if (url.pathname.startsWith("/thumb/")) {
+      return handleThumb(request, env, ctx, (req) =>
+        getContainer(env.API_CONTAINER, "api").fetch(req),
+      );
+    }
+
+    // Everything else (run_worker_first paths) forwards to the container.
     // Single shared instance (family scale) — one name.
     return getContainer(env.API_CONTAINER, "api").fetch(request);
   },
