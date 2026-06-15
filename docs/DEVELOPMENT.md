@@ -60,6 +60,28 @@ cd app/web && npm run dev
 > or it 404s against Vite. Proxy/config changes are not hot-reloaded — restart the
 > dev server.
 
+### Testing the Worker layer (`/thumb`, edge cache, R2)
+The Vite + uvicorn loop above never runs the Cloudflare Worker — Vite proxies
+`/thumb` straight to the container. The Worker (`worker/*.ts`, which serves
+`/thumb` from R2 + edge cache in prod, see [API.md](API.md#get-thumbphoto_id))
+only runs under `workerd`:
+```bash
+wrangler dev --remote --port 8787
+# open http://localhost:8787
+```
+> **Remote runs no container:** `--remote` gives a real `R2_THUMBS` binding and
+> real edge cache (good for testing `/thumb`), but containers are local-mode only,
+> so `/search` and the R2-miss container fall-through return empty. Drive `/thumb`
+> directly with real photo ids rather than via the search grid.
+>
+> **Log in on `:8787`:** the SPA gate uses per-origin localStorage, so a session on
+> `:5173` doesn't carry — sign in again on `:8787`.
+>
+> **Latency is not prod-representative:** `--remote` round-trips your machine →
+> CF edge → back, inflating timings. It validates *behavior* (Worker intercept,
+> R2 serve, `cf-cache-status: HIT`, auth fail-closed), not the edge-local latency
+> targets — measure those on the deployed Worker.
+
 ### Indexer
 ```bash
 uv run photos-index --step <step> [--limit N] [--reindex]
