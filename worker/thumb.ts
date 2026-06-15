@@ -24,13 +24,17 @@ export async function handleThumb(
     return new Response(auth.detail, { status: auth.status });
   }
 
-  const id = new URL(request.url).pathname.slice("/thumb/".length);
+  const parsed = new URL(request.url);
+  const id = parsed.pathname.slice("/thumb/".length);
   if (!ID_RE.test(id)) {
     return new Response("bad thumbnail id", { status: 400 });
   }
 
+  // Strip query string from cache key: /thumb/{id}?anything would otherwise
+  // cache as a separate 1-year-immutable entry for identical R2 bytes.
+  const cacheKey = new Request(parsed.origin + parsed.pathname);
   const cache = caches.default;
-  const cached = await cache.match(request);
+  const cached = await cache.match(cacheKey);
   if (cached) return cached;
 
   const obj = await env.R2_THUMBS.get(`thumbs/${id}.jpg`);
@@ -47,6 +51,6 @@ export async function handleThumb(
       ETag: obj.httpEtag,
     },
   });
-  ctx.waitUntil(cache.put(request, response.clone()));
+  ctx.waitUntil(cache.put(cacheKey, response.clone()));
   return response;
 }

@@ -106,6 +106,28 @@ describe("handleThumb", () => {
     expect(forward).not.toHaveBeenCalled();
   });
 
+  it("strips query string from cache key so variant URLs share one cache entry", async () => {
+    const get = vi.fn(async () => r2Object("JPEGBYTES"));
+    const ctx = makeCtx();
+    const forward = vi.fn();
+
+    // First request: URL with query string — should miss cache, hit R2, write to cache.
+    await handleThumb(
+      new Request(`${THUMB_URL}?v=bust`),
+      openEnv(get),
+      ctx,
+      forward,
+    );
+    await Promise.all((ctx as unknown as { tasks: Promise<unknown>[] }).tasks);
+    expect(cache.put).toHaveBeenCalledTimes(1);
+
+    // Second request: bare URL — should hit the cache entry written above.
+    get.mockClear();
+    const res = await handleThumb(new Request(THUMB_URL), openEnv(get), makeCtx(), forward);
+    expect(await res.text()).toBe("JPEGBYTES");
+    expect(get).not.toHaveBeenCalled();
+  });
+
   it("enforces auth before any cache read or R2 access", async () => {
     const get = vi.fn();
     const forward = vi.fn();
