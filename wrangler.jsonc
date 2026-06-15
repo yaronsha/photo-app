@@ -9,6 +9,13 @@
     "ALLOWED_EMAILS": "yaron.shapira7@gmail.com,avish63@gmail.com,noa0098@gmail.com,etish65@gmail.com"
   },
 
+  // Real R2 binding so the Worker can serve /thumb/* straight from the bucket
+  // in-isolate. (The R2_BUCKET var above is just the string name passed to
+  // boto3 inside the container; this binding is the object accessor.)
+  "r2_buckets": [
+    { "binding": "R2_THUMBS", "bucket_name": "shapira-photos-prod" }
+  ],
+
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
@@ -31,6 +38,11 @@
     "directory": "app/web/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
+    // These paths run the Worker before the assets/SPA layer. /thumb/* MUST
+    // stay here: with SPA not_found_handling, a path that isn't worker-first
+    // and matches no asset is served index.html — it never reaches the Worker.
+    // The Worker now serves /thumb/* from R2 + edge cache (issue #51); the rest
+    // forward to the container.
     "run_worker_first": [
       "/search", "/people", "/photo/*", "/thumb/*", "/auth/*", "/api/*"
     ]

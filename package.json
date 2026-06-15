@@ -7,13 +7,16 @@
   "scripts": {
     "build": "cd app/web && npm ci && npm run build",
     "deploy": "wrangler deploy",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@cloudflare/containers": "^0.3.4"
+    "@cloudflare/containers": "^0.3.4",
+    "jose": "6.2.3"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260524.1",
+    "vitest": "4.1.8",
     "wrangler": "^4.94.0"
   }
 }
