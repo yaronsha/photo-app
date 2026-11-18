@@ -203,6 +203,13 @@ error while the Worker is already live. Static assets serve immediately.
 dashboard, set the build command to run the npm build then `wrangler deploy`,
 add `VITE_*` build vars. Push to `main` = prod deploy; PRs get preview URLs.
 
+**Automatic DB migrations:** set the production **Deploy command** to
+`bash scripts/deploy.sh` and add a build secret `DATABASE_URL_DIRECT`
+(direct Postgres, port 5432). The script runs `alembic upgrade head` and then
+`npx wrangler deploy`; a failed migration aborts the deploy. Preview builds use
+the separate Preview command, so they never touch the DB. Migrations run
+before new code is live, so keep them additive (drop columns a release later).
+
 Alternative: GitHub Actions with `cloudflare/wrangler-action` if you want more
 control over the build matrix.
 
