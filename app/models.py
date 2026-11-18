@@ -36,3 +36,4 @@ class SearchResult:
     face_clarity_score: int | None = None
     primary_focus: str | None = None
     indoor_outdoor: str | None = None
+    hidden: bool = False

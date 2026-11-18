@@ -10,6 +10,8 @@ from ..vectordb import get_vector_backend
 from ..vectordb.base import VectorBackend
 from ..models import SearchResult
 
+HiddenMode = Literal["exclude", "only"]
+
 
 def _parse_iso_date(s: str | None) -> date | None:
     if not s:
@@ -36,24 +38,39 @@ def search(
     people_mode: Literal["any", "all"] = "any",
     include_docs: bool = False,
     vector_db: VectorBackend | None = None,
+    hidden: HiddenMode = "exclude",
 ) -> tuple[list[SearchResult], bool]:
+    """`hidden="exclude"` (default) drops admin-hidden photos. `"only"`
+    returns just hidden photos (admin "Hidden" view) — it also lists
+    documents and undated photos, and works with no other filter. The API
+    layer decides who may ask for `"only"`.
+    """
     lo, hi = _date_bounds(date_from, date_to)
     has_date = lo is not None or hi is not None
     has_query = bool(query and query.strip())
     has_person = bool(person_ids)
+    hidden_only = hidden == "only"
 
-    if not has_query and not has_date and not has_person:
+    if not has_query and not has_date and not has_person and not hidden_only:
         return [], False
 
     with get_session() as session:
         if not has_query:
             return _browse(
-                session, lo, hi, person_ids, limit, offset, people_mode, include_docs
+                session, lo, hi, person_ids, limit, offset, people_mode, include_docs,
+                hidden=hidden,
             )
         return _vector_search(
             session, query, lo, hi, person_ids, limit, offset, people_mode, include_docs,
-            vector_db=vector_db,
+            vector_db=vector_db, hidden=hidden,
         )
+
+
+
+def _hidden_clause(hidden: HiddenMode):
+    if hidden == "only":
+        return Photo.hidden_at.is_not(None)
+    return Photo.hidden_at.is_(None)
 
 
 def _attach_people(session: Session, photo_ids: list[str]) -> dict[str, list[dict]]:
@@ -88,6 +105,7 @@ def _photo_to_result(photo: Photo, people: list[dict], score: float) -> SearchRe
         face_clarity_score=photo.face_clarity_score,
         primary_focus=photo.primary_focus,
         indoor_outdoor=photo.indoor_outdoor,
+        hidden=photo.hidden_at is not None,
     )
 
 
@@ -117,10 +135,14 @@ def _browse(
     offset: int = 0,
     people_mode: Literal["any", "all"] = "any",
     include_docs: bool = False,
+    hidden: HiddenMode = "exclude",
 ) -> tuple[list[SearchResult], bool]:
-    stmt = select(Photo).where(Photo.taken_at.is_not(None))
+    hidden_only = hidden == "only"
+    stmt = select(Photo).where(_hidden_clause(hidden))
+    if not hidden_only:
+        stmt = stmt.where(Photo.taken_at.is_not(None))
 
-    if not include_docs:
+    if not include_docs and not hidden_only:
         stmt = stmt.where(or_(Photo.content_type == "photo", Photo.content_type.is_(None)))
     if lo is not None:
         stmt = stmt.where(Photo.taken_at >= lo)
@@ -130,7 +152,7 @@ def _browse(
         stmt = stmt.where(_people_filter_clause(person_ids, people_mode))
 
     # fetch limit+1 to detect has_more without a separate COUNT query
-    stmt = stmt.order_by(Photo.taken_at.desc()).limit(limit + 1).offset(offset)
+    stmt = stmt.order_by(Photo.taken_at.desc().nulls_last()).limit(limit + 1).offset(offset)
 
     photos = session.execute(stmt).scalars().all()
     has_more = len(photos) > limit
@@ -154,13 +176,18 @@ def _vector_search(
     people_mode: Literal["any", "all"] = "any",
     include_docs: bool = False,
     vector_db: VectorBackend | None = None,
+    hidden: HiddenMode = "exclude",
 ) -> tuple[list[SearchResult], bool]:
     provider = get_embed_provider()
     qvec = provider.embed(query)
 
     vector_db = vector_db or get_vector_backend()
+    # The hidden filter is always on, so it's not counted here: only a few
+    # photos are hidden, so it rarely shrinks a page. "only" mode is very
+    # selective, so it does count.
     has_filter = (
         lo is not None or hi is not None or bool(person_ids) or not include_docs
+        or hidden == "only"
     )
     # "all" mode is far more selective than "any"; overfetch may still under-return
     # for very strict multi-person intersections in large collections.
@@ -181,9 +208,9 @@ def _vector_search(
     if not ids:
         return [], False
 
-    stmt = select(Photo).where(Photo.id.in_(ids))
+    stmt = select(Photo).where(Photo.id.in_(ids)).where(_hidden_clause(hidden))
 
-    if not include_docs:
+    if not include_docs and hidden != "only":
         stmt = stmt.where(or_(Photo.content_type == "photo", Photo.content_type.is_(None)))
     if lo is not None:
         stmt = stmt.where(Photo.taken_at >= lo)

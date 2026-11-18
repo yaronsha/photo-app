@@ -6,6 +6,10 @@ interface PhotoSidebarProps {
   photo: SearchResult;
   info: PhotoInfo | null | undefined;
   isLoadingInfo: boolean;
+  /** Show Hide/Unhide. UI only; the server rejects non-admins. */
+  isAdmin?: boolean;
+  onToggleHidden?: (photoId: string, hidden: boolean) => void;
+  isTogglingHidden?: boolean;
 }
 
 function formatDate(str: string | null | undefined): string {
@@ -34,7 +38,15 @@ function formatTime(str: string | null | undefined): string {
   }
 }
 
-export function PhotoSidebar({ photo, info, isLoadingInfo }: PhotoSidebarProps) {
+export function PhotoSidebar({
+  photo,
+  info,
+  isLoadingInfo,
+  isAdmin = false,
+  onToggleHidden,
+  isTogglingHidden = false,
+}: PhotoSidebarProps) {
+  const isHidden = info?.hidden ?? photo.hidden ?? false;
   const merged = info ?? photo;
   const caption = merged.caption;
   const description = info?.description;
@@ -137,6 +149,20 @@ export function PhotoSidebar({ photo, info, isLoadingInfo }: PhotoSidebarProps) 
           <span className="material-symbols-outlined text-[18px]">download</span>
           Download High Res
         </a>
+        {isAdmin && onToggleHidden && (
+          <button
+            type="button"
+            onClick={() => onToggleHidden(photo.id, !isHidden)}
+            disabled={isTogglingHidden}
+            title={isHidden ? 'Show this photo to everyone again' : 'Hide this photo from everyone except admins'}
+            className="w-full flex items-center justify-center gap-sm border border-outline-variant text-on-surface py-md rounded-xl text-label-md hover:bg-surface-container-low transition-colors disabled:opacity-50 disabled:cursor-wait"
+          >
+            <span className="material-symbols-outlined text-[18px]">
+              {isHidden ? 'visibility' : 'visibility_off'}
+            </span>
+            {isHidden ? 'Unhide photo' : 'Hide photo'}
+          </button>
+        )}
         <button
           disabled
           title="Coming soon"

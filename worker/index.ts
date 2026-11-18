@@ -1,5 +1,5 @@
 import { Container, getContainer } from "@cloudflare/containers";
-import { handleThumb } from "./thumb";
+import { handleHide, handleThumb } from "./thumb";
 
 // Secrets to bridge from Worker env into the container sandbox.
 // The container only sees Dockerfile ENV + this.envVars — Worker secrets are not
@@ -12,6 +12,7 @@ const CONTAINER_ENV_KEYS = [
   "R2_BUCKET",
   "SUPABASE_URL",
   "ALLOWED_EMAILS",
+  "ADMIN_EMAILS",
   "OPENAI_API_KEY",
 ] as const;
 
@@ -43,6 +44,10 @@ export default {
       );
     }
 
-    return getContainer(env.API_CONTAINER, "api").fetch(request);
+    const forward = (req: Request) => getContainer(env.API_CONTAINER, "api").fetch(req);
+    const hidden = await handleHide(request, ctx, forward);
+    if (hidden) return hidden;
+
+    return forward(request);
   },
 };

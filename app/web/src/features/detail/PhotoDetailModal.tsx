@@ -15,6 +15,9 @@ interface PhotoDetailModalProps {
   hasPrev: boolean;
   hasNext: boolean;
   isLoadingNext?: boolean;
+  isAdmin?: boolean;
+  onToggleHidden?: (photoId: string, hidden: boolean) => void;
+  isTogglingHidden?: boolean;
 }
 
 export function PhotoDetailModal({
@@ -27,6 +30,9 @@ export function PhotoDetailModal({
   hasPrev,
   hasNext,
   isLoadingNext = false,
+  isAdmin = false,
+  onToggleHidden,
+  isTogglingHidden = false,
 }: PhotoDetailModalProps) {
   const [imgLoaded, setImgLoaded] = useState(false);
 
@@ -146,7 +152,14 @@ export function PhotoDetailModal({
         </div>
 
         {/* Sidebar */}
-        <PhotoSidebar photo={photo} info={info} isLoadingInfo={isLoadingInfo} />
+        <PhotoSidebar
+          photo={photo}
+          info={info}
+          isLoadingInfo={isLoadingInfo}
+          isAdmin={isAdmin}
+          onToggleHidden={onToggleHidden}
+          isTogglingHidden={isTogglingHidden}
+        />
       </main>
     </div>
   );

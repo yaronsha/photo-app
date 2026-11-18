@@ -53,6 +53,10 @@ class Photo(Base):
     vector_indexed_at: Mapped[str | None] = mapped_column(String, nullable=True)
     face_indexed_at: Mapped[str | None] = mapped_column(String, nullable=True)
     google_metadata_indexed_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Admin "hide" from the web UI. Hidden = hidden_at IS NOT NULL. Hidden
+    # photos are left out of search/browse/info for non-admins.
+    hidden_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    hidden_by: Mapped[str | None] = mapped_column(String, nullable=True)
 
     __table_args__ = (
         Index("idx_photos_taken_at", "taken_at"),

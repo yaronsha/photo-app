@@ -22,10 +22,21 @@ async function apiFetch<T>(path: string): Promise<T> {
   return resp.json() as Promise<T>;
 }
 
+async function apiPost<T>(path: string): Promise<T> {
+  const headers = await authHeaders();
+  const resp = await fetch(`${BASE}${path}`, { method: 'POST', headers });
+  if (!resp.ok) {
+    throw new Error(`API error ${resp.status}: ${resp.url}`);
+  }
+  return resp.json() as Promise<T>;
+}
+
 export interface Me {
   email?: string;
   sub?: string;
   auth_enabled: boolean;
+  /** Can hide/unhide photos (email in ADMIN_EMAILS). Enforced server-side. */
+  is_admin?: boolean;
 }
 
 /** Authorization probe: 200 = allowed, 403 = email not in allowlist.
@@ -60,7 +71,16 @@ export function fetchSearch(params: SearchParams): Promise<SearchResponse> {
     q.set('people_mode', params.people_mode);
   }
   if (params.include_docs) q.set('include_docs', 'true');
+  if (params.hidden === 'only') q.set('hidden', 'only');
   return apiFetch<SearchResponse>(`/search?${q.toString()}`);
+}
+
+export function setPhotoHidden(
+  photoId: string,
+  hidden: boolean,
+): Promise<{ id: string; hidden: boolean }> {
+  const action = hidden ? 'hide' : 'unhide';
+  return apiPost(`/photo/${encodeURIComponent(photoId)}/${action}`);
 }
 
 export function fetchPhotoInfo(photoId: string): Promise<PhotoInfo> {

@@ -11,6 +11,34 @@ export interface ThumbEnv extends AuthEnv {
 // Photo ids are 16 lowercase hex chars (sha256 prefix). Validate before keying R2.
 const ID_RE = /^[0-9a-f]{16}$/;
 
+// Strip query string from cache key: /thumb/{id}?anything would otherwise
+// cache as a separate 1-year-immutable entry for identical R2 bytes.
+function thumbCacheKey(origin: string, id: string): Request {
+  return new Request(`${origin}/thumb/${id}`);
+}
+
+const HIDE_RE = /^\/photo\/([0-9a-f]{16})\/hide$/;
+
+/** Proxy POST /photo/{id}/hide to the container (which checks admin, sets the
+ *  flag and deletes thumbs/{id}.jpg from R2). On success, also drop this
+ *  colo's edge-cache copy of the thumb so the fast path stops serving it.
+ *  Returns null for any other request. Other colos and browsers that already
+ *  cached the thumb keep it until their cache expires. */
+export async function handleHide(
+  request: Request,
+  ctx: ExecutionContext,
+  forwardToContainer: (request: Request) => Response | Promise<Response>,
+): Promise<Response | null> {
+  const url = new URL(request.url);
+  const m = request.method === "POST" ? HIDE_RE.exec(url.pathname) : null;
+  if (!m) return null;
+  const response = await forwardToContainer(request);
+  if (response.ok) {
+    ctx.waitUntil(caches.default.delete(thumbCacheKey(url.origin, m[1])));
+  }
+  return response;
+}
+
 // `forwardToContainer` is injected so this handler is unit-testable without
 // the @cloudflare/containers runtime import.
 export async function handleThumb(
@@ -30,9 +58,7 @@ export async function handleThumb(
     return new Response("bad thumbnail id", { status: 400 });
   }
 
-  // Strip query string from cache key: /thumb/{id}?anything would otherwise
-  // cache as a separate 1-year-immutable entry for identical R2 bytes.
-  const cacheKey = new Request(parsed.origin + parsed.pathname);
+  const cacheKey = thumbCacheKey(parsed.origin, id);
   const cache = caches.default;
   const cached = await cache.match(cacheKey);
   if (cached) return cached;

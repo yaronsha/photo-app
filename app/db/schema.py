@@ -25,6 +25,8 @@ PHOTOS_ATTRIBUTE_COLUMNS: list[tuple[str, str]] = [
     ("face_clarity_score", "INTEGER"),
     ("caption_schema_version", "INTEGER"),
     ("embed_schema_version", "INTEGER"),
+    ("hidden_at", "TEXT"),
+    ("hidden_by", "TEXT"),
 ]
 
 

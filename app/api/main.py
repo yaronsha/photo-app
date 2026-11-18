@@ -1,11 +1,11 @@
 import io
 import logging
 import os
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
 from sqlalchemy import select
@@ -15,7 +15,7 @@ from ..db import Person, Photo, PhotoPerson, get_session, init_schema
 from ..search.query import search as do_search
 from ..storage import get_storage
 from ..storage.base import KeyNotFound
-from .auth import _auth_enabled, require_auth, require_cron
+from .auth import _auth_enabled, is_admin, require_admin, require_auth, require_cron
 from .logging_config import configure_logging
 
 # Must run before uvicorn wires its own handlers.
@@ -106,12 +106,17 @@ def search_endpoint(
     person_id: list[str] = Query(default=[]),
     people_mode: str = Query("any"),
     include_docs: bool = Query(False),
-    _user=Depends(require_auth),
+    hidden: str = Query("exclude"),
+    claims: dict = Depends(require_auth),
 ):
     lo = _validate_iso_date(date_from, "date_from")
     hi = _validate_iso_date(date_to, "date_to")
     if people_mode not in ("any", "all"):
         raise HTTPException(status_code=400, detail="people_mode must be 'any' or 'all'")
+    if hidden not in ("exclude", "only"):
+        raise HTTPException(status_code=400, detail="hidden must be 'exclude' or 'only'")
+    if hidden == "only" and not is_admin(claims):
+        raise HTTPException(status_code=403, detail="admin only")
     results, has_more = do_search(
         q,
         limit=limit,
@@ -121,6 +126,7 @@ def search_endpoint(
         person_ids=person_id or None,
         people_mode=people_mode,
         include_docs=include_docs,
+        hidden=hidden,
     )
     return {
         "results": [
@@ -141,6 +147,7 @@ def search_endpoint(
                 "face_clarity_score": r.face_clarity_score,
                 "primary_focus": r.primary_focus,
                 "indoor_outdoor": r.indoor_outdoor,
+                "hidden": r.hidden,
             }
             for r in results
         ],
@@ -149,16 +156,31 @@ def search_endpoint(
 
 
 @app.get("/thumb/{photo_id}")
-def thumb(photo_id: str, _user=Depends(require_auth)):
+def thumb(photo_id: str, claims: dict = Depends(require_auth)):
     with get_session() as session:
         db_photo = session.get(Photo, photo_id)
 
-    if db_photo is None:
+    if db_photo is None or not _can_see(db_photo, claims):
         raise HTTPException(status_code=404, detail="Photo not found")
 
     _check_key(db_photo.storage_path)
     storage = get_storage()
     thumb_key = f"thumbs/{photo_id}.jpg"
+
+    if db_photo.hidden_at is not None:
+        # Admin viewing a hidden photo. Never write its thumb to storage:
+        # the Worker serves thumbs/ straight from R2 to any allowed user.
+        try:
+            thumb_bytes = _make_thumb(storage.read_bytes(db_photo.storage_path))
+        except KeyNotFound:
+            raise HTTPException(status_code=404, detail="Photo bytes not found")
+        except Exception:
+            raise HTTPException(status_code=502, detail="Storage backend error")
+        return Response(
+            thumb_bytes,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "private, no-store"},
+        )
 
     try:
         if not storage.exists(thumb_key):
@@ -176,10 +198,10 @@ def thumb(photo_id: str, _user=Depends(require_auth)):
 
 
 @app.get("/photo/{photo_id}/info")
-def photo_info(photo_id: str, _user=Depends(require_auth)):
+def photo_info(photo_id: str, claims: dict = Depends(require_auth)):
     with get_session() as session:
         photo = session.get(Photo, photo_id)
-        if photo is None:
+        if photo is None or not _can_see(photo, claims):
             raise HTTPException(status_code=404, detail="Photo not found")
 
         people_rows = session.execute(
@@ -204,15 +226,16 @@ def photo_info(photo_id: str, _user=Depends(require_auth)):
             "setting_type": photo.setting_type,
             "sharpness": photo.sharpness,
             "face_clarity_score": photo.face_clarity_score,
+            "hidden": photo.hidden_at is not None,
         }
 
 
 @app.get("/photo/{photo_id}")
-def photo(photo_id: str, _user=Depends(require_auth)):
+def photo(photo_id: str, claims: dict = Depends(require_auth)):
     with get_session() as session:
         db_photo = session.get(Photo, photo_id)
 
-    if db_photo is None:
+    if db_photo is None or not _can_see(db_photo, claims):
         raise HTTPException(status_code=404, detail="Photo not found")
 
     key = db_photo.storage_path
@@ -231,6 +254,60 @@ def photo(photo_id: str, _user=Depends(require_auth)):
         raise HTTPException(status_code=502, detail="Storage backend error")
 
 
+def _can_see(photo: Photo, claims: dict) -> bool:
+    """Hidden photos look like they don't exist (404) to non-admins."""
+    return photo.hidden_at is None or is_admin(claims)
+
+
+def _set_hidden(photo_id: str, hidden: bool, claims: dict) -> dict:
+    # One short transaction: no network or LLM work inside.
+    with get_session() as session:
+        photo = session.get(Photo, photo_id)
+        if photo is None:
+            raise HTTPException(status_code=404, detail="Photo not found")
+        if hidden:
+            if photo.hidden_at is None:
+                photo.hidden_at = datetime.now(timezone.utc).isoformat()
+                photo.hidden_by = claims.get("email")
+        else:
+            photo.hidden_at = None
+            photo.hidden_by = None
+        result = {"id": photo_id, "hidden": photo.hidden_at is not None}
+    if hidden:
+        _drop_stored_thumb(photo_id)
+    logger.info(
+        "photo hide toggled",
+        extra={"photo_id": photo_id, "hidden": hidden, "by": claims.get("email")},
+    )
+    return result
+
+
+def _drop_stored_thumb(photo_id: str) -> None:
+    """Delete the stored thumbnail so the Worker's R2 fast path can't serve
+    it; requests then fall through to the container, which 404s for
+    non-admins. Unhide regenerates it on demand. Best-effort: the hide
+    itself already committed. The Worker also purges its edge-cache entry
+    after a successful hide (worker/index.ts)."""
+    try:
+        get_storage().delete(f"thumbs/{photo_id}.jpg")
+    except KeyNotFound:
+        pass
+    except Exception:
+        logger.exception("hide: failed to delete stored thumb", extra={"photo_id": photo_id})
+
+
+@app.post("/photo/{photo_id}/hide")
+def hide_photo(photo_id: str, claims: dict = Depends(require_admin)):
+    """Admin only. Hide a photo from every non-admin. Idempotent."""
+    return _set_hidden(photo_id, True, claims)
+
+
+@app.post("/photo/{photo_id}/unhide")
+def unhide_photo(photo_id: str, claims: dict = Depends(require_admin)):
+    """Admin only. Make a hidden photo visible again. Idempotent."""
+    return _set_hidden(photo_id, False, claims)
+
+
 @app.post("/auth/exchange")
 def auth_exchange(claims: dict = Depends(require_auth)):
     """Cookie-exchange path (fallback for proxy mode); not used by default
@@ -246,6 +323,7 @@ def me(claims: dict = Depends(require_auth)):
         "email": claims.get("email"),
         "sub": claims.get("sub"),
         "auth_enabled": _auth_enabled(),
+        "is_admin": is_admin(claims),
     }
 
 

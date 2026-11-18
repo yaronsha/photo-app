@@ -102,6 +102,8 @@ photos (
     caption_indexed_at
     vector_indexed_at
     face_indexed_at             — Phase 2
+    hidden_at                   TIMESTAMP — admin hid it from the web UI (NULL = visible)
+    hidden_by                   email of the admin who hid it
 )
 
 people (
@@ -140,6 +142,8 @@ query → embed → chroma.query(top N=overfetch) → SQLite IN (...ids)
 ```
 
 Browse mode (no query, only filters): straight SQLite `ORDER BY taken_at DESC`.
+
+Hidden photos (`hidden_at IS NOT NULL`, set by admins from the web UI) are always excluded from both paths, except in the admin-only `hidden=only` view.
 
 Detail in `app/search/query.py`. People filter supports `any` (default) and `all` modes.
 

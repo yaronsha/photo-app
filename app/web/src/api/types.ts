@@ -12,6 +12,7 @@ export interface SearchParams {
   person_id?: string[];
   people_mode?: 'any' | 'all';
   include_docs?: boolean;
+  hidden?: 'exclude' | 'only';  // 'only' = admin Hidden view
 }
 
 export interface SearchResult {
@@ -31,6 +32,7 @@ export interface SearchResult {
   face_clarity_score: number | null;
   primary_focus: string | null;
   indoor_outdoor: string | null;
+  hidden: boolean;
 }
 
 export interface SearchResponse {
@@ -54,4 +56,5 @@ export interface PhotoInfo {
   setting_type: string | null;
   sharpness: string | null;
   face_clarity_score: number | null;
+  hidden: boolean;
 }
