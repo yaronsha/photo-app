@@ -1,6 +1,12 @@
-import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  useQuery,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+  type InfiniteData,
+} from '@tanstack/react-query';
 import { fetchMe, fetchPeople, fetchSearch, fetchPhotoInfo, setPhotoHidden } from './client';
-import type { SearchParams, SearchResult } from './types';
+import type { SearchParams, SearchResponse, SearchResult } from './types';
 
 const LIMIT = 50;
 
@@ -69,15 +75,23 @@ export function flattenPages(
   return pages.flatMap(p => p.results);
 }
 
-/** Current user's identity + admin flag. Admin only gates UI; the server
+/** Current user's identity + admin flag (also the allowlist probe in App).
+ *  Keyed by the signed-in user so a sign-out/sign-in as someone else never
+ *  reuses the previous user's admin flag. Admin only gates UI; the server
  *  re-checks on every hide/unhide call. */
-export function useMe() {
+export function useMe(userKey: string | null, enabled = true) {
   return useQuery({
-    queryKey: ['me'],
+    queryKey: ['me', userKey],
     queryFn: fetchMe,
     staleTime: Infinity,
     retry: false,
+    enabled,
   });
+}
+
+function isHiddenView(queryKey: readonly unknown[]): boolean {
+  const filters = queryKey[1] as SearchFilters | undefined;
+  return !!filters?.hiddenOnly;
 }
 
 export function useSetPhotoHidden() {
@@ -85,8 +99,28 @@ export function useSetPhotoHidden() {
   return useMutation({
     mutationFn: ({ photoId, hidden }: { photoId: string; hidden: boolean }) =>
       setPhotoHidden(photoId, hidden),
-    onSuccess: (_data, { photoId }) => {
-      queryClient.invalidateQueries({ queryKey: ['search'] });
+    onSuccess: (_data, { photoId, hidden }) => {
+      // Lists the photo just left (normal views on hide, the Hidden view on
+      // unhide): drop it from the cached pages instead of refetching every
+      // loaded page.
+      const leaving = (q: { queryKey: readonly unknown[] }) =>
+        q.queryKey[0] === 'search' && isHiddenView(q.queryKey) !== hidden;
+      queryClient.setQueriesData<InfiniteData<SearchResponse>>(
+        { predicate: leaving },
+        data =>
+          data && {
+            ...data,
+            pages: data.pages.map(p => ({
+              ...p,
+              results: p.results.filter(r => r.id !== photoId),
+            })),
+          },
+      );
+      // Lists it just joined: refetch only if on screen (e.g. Undo),
+      // otherwise mark stale for next time.
+      queryClient.invalidateQueries({
+        predicate: q => q.queryKey[0] === 'search' && !leaving(q),
+      });
       queryClient.invalidateQueries({ queryKey: ['photoInfo', photoId] });
     },
   });

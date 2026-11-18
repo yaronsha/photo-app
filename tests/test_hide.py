@@ -183,3 +183,33 @@ def test_vector_search_excludes_hidden(tmp_env):
         assert [r.id for r in results] == [VISIBLE]
         results, _ = query_mod.search("anything", vector_db=vdb, hidden="only")
         assert [r.id for r in results] == [SECRET]
+
+
+# ── thumbnails (Worker serves thumbs/ straight from R2) ─────────────────────
+
+def test_hide_deletes_stored_thumb(client, tmp_env):
+    thumb = tmp_env["data_dir"] / "thumbs" / f"{SECRET}.jpg"
+    thumb.parent.mkdir(parents=True, exist_ok=True)
+    thumb.write_bytes(b"old-thumb")
+
+    assert client.post(f"/photo/{SECRET}/hide", headers=_hdr(ADMIN)).status_code == 200
+    assert not thumb.exists()
+
+
+def test_admin_thumb_of_hidden_photo_is_not_stored(client, tmp_env):
+    client.post(f"/photo/{SECRET}/hide", headers=_hdr(ADMIN))
+
+    resp = client.get(f"/thumb/{SECRET}", headers=_hdr(ADMIN), follow_redirects=False)
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/jpeg"
+    assert resp.headers["cache-control"] == "private, no-store"
+    assert not (tmp_env["data_dir"] / "thumbs" / f"{SECRET}.jpg").exists()
+
+
+def test_unhide_regenerates_thumb_on_demand(client, tmp_env):
+    client.post(f"/photo/{SECRET}/hide", headers=_hdr(ADMIN))
+    client.post(f"/photo/{SECRET}/unhide", headers=_hdr(ADMIN))
+
+    resp = client.get(f"/thumb/{SECRET}", headers=_hdr(KID), follow_redirects=False)
+    assert resp.status_code == 302
+    assert (tmp_env["data_dir"] / "thumbs" / f"{SECRET}.jpg").exists()

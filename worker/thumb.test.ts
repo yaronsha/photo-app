@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { handleThumb, type ThumbEnv } from "./thumb";
+import { handleHide, handleThumb, type ThumbEnv } from "./thumb";
 
 const VALID_ID = "00112233aabbccdd";
 const THUMB_URL = `https://app.example/thumb/${VALID_ID}`;
@@ -11,6 +11,7 @@ function makeCache() {
   return {
     store,
     match: vi.fn(async (req: Request) => store.get(req.url)),
+    delete: vi.fn(async (req: Request) => store.delete(req.url)),
     put: vi.fn(async (req: Request, res: Response) => {
       store.set(req.url, res);
     }),
@@ -143,6 +144,52 @@ describe("handleThumb", () => {
     expect(res.status).toBe(401);
     expect(cache.match).not.toHaveBeenCalled();
     expect(get).not.toHaveBeenCalled();
+    expect(forward).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleHide", () => {
+  const HIDE_URL = `https://app.example/photo/${VALID_ID}/hide`;
+
+  it("purges the edge-cached thumb after a successful hide, so a hidden id falls through to the container", async () => {
+    // Thumb is cached at the edge from before the hide.
+    const r2 = vi.fn(async () => r2Object("JPEGBYTES"));
+    const ctx = makeCtx();
+    await handleThumb(new Request(THUMB_URL), openEnv(r2), ctx, vi.fn());
+    await Promise.all(ctx.tasks);
+    expect(cache.store.size).toBe(1);
+
+    // Admin hides it: container says ok (and deletes the R2 object).
+    const hideCtx = makeCtx();
+    const forwardHide = vi.fn(async () => new Response("{}", { status: 200 }));
+    const res = await handleHide(new Request(HIDE_URL, { method: "POST" }), hideCtx, forwardHide);
+    expect(res?.status).toBe(200);
+    await Promise.all(hideCtx.tasks);
+    expect(cache.store.size).toBe(0);
+
+    // Next thumb request: cache miss, R2 miss → container (which 404s for non-admins).
+    const gone = vi.fn(async () => null);
+    const container = vi.fn(async () => new Response("Photo not found", { status: 404 }));
+    const after = await handleThumb(new Request(THUMB_URL), openEnv(gone), makeCtx(), container);
+    expect(after.status).toBe(404);
+    expect(container).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the cache when the container rejects the hide (e.g. non-admin 403)", async () => {
+    cache.store.set(THUMB_URL, new Response("JPEGBYTES"));
+    const ctx = makeCtx();
+    const forward = vi.fn(async () => new Response("admin only", { status: 403 }));
+    const res = await handleHide(new Request(HIDE_URL, { method: "POST" }), ctx, forward);
+    expect(res?.status).toBe(403);
+    expect(cache.delete).not.toHaveBeenCalled();
+  });
+
+  it("ignores other requests", async () => {
+    const forward = vi.fn();
+    expect(await handleHide(new Request(HIDE_URL), makeCtx(), forward)).toBeNull();
+    expect(
+      await handleHide(new Request(`https://app.example/photo/${VALID_ID}/unhide`, { method: "POST" }), makeCtx(), forward),
+    ).toBeNull();
     expect(forward).not.toHaveBeenCalled();
   });
 });

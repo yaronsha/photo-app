@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
 from sqlalchemy import select
@@ -167,6 +167,21 @@ def thumb(photo_id: str, claims: dict = Depends(require_auth)):
     storage = get_storage()
     thumb_key = f"thumbs/{photo_id}.jpg"
 
+    if db_photo.hidden_at is not None:
+        # Admin viewing a hidden photo. Never write its thumb to storage:
+        # the Worker serves thumbs/ straight from R2 to any allowed user.
+        try:
+            thumb_bytes = _make_thumb(storage.read_bytes(db_photo.storage_path))
+        except KeyNotFound:
+            raise HTTPException(status_code=404, detail="Photo bytes not found")
+        except Exception:
+            raise HTTPException(status_code=502, detail="Storage backend error")
+        return Response(
+            thumb_bytes,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "private, no-store"},
+        )
+
     try:
         if not storage.exists(thumb_key):
             src_bytes = storage.read_bytes(db_photo.storage_path)
@@ -258,11 +273,27 @@ def _set_hidden(photo_id: str, hidden: bool, claims: dict) -> dict:
             photo.hidden_at = None
             photo.hidden_by = None
         result = {"id": photo_id, "hidden": photo.hidden_at is not None}
+    if hidden:
+        _drop_stored_thumb(photo_id)
     logger.info(
         "photo hide toggled",
         extra={"photo_id": photo_id, "hidden": hidden, "by": claims.get("email")},
     )
     return result
+
+
+def _drop_stored_thumb(photo_id: str) -> None:
+    """Delete the stored thumbnail so the Worker's R2 fast path can't serve
+    it; requests then fall through to the container, which 404s for
+    non-admins. Unhide regenerates it on demand. Best-effort: the hide
+    itself already committed. The Worker also purges its edge-cache entry
+    after a successful hide (worker/index.ts)."""
+    try:
+        get_storage().delete(f"thumbs/{photo_id}.jpg")
+    except KeyNotFound:
+        pass
+    except Exception:
+        logger.exception("hide: failed to delete stored thumb", extra={"photo_id": photo_id})
 
 
 @app.post("/photo/{photo_id}/hide")

@@ -24,12 +24,22 @@ if [[ -z "${DATABASE_URL_DIRECT:-}" ]]; then
 fi
 
 if ! command -v uv >/dev/null 2>&1; then
-  python3 -m pip install --quiet --user uv
+  # pip --user can be refused on PEP 668 images; fall back to the official
+  # installer (pinned version).
+  python3 -m pip install --quiet --user uv \
+    || curl -LsSf https://astral.sh/uv/0.11.32/install.sh | sh
   export PATH="$HOME/.local/bin:$PATH"
 fi
 
+# Call Alembic directly (not scripts/migrate.sh) so a stray .env can't
+# override the build secret. Install only what migrations/env.py imports
+# (app.db.orm) instead of the whole app (chromadb, openai, ...).
+# migrations/env.py reads DATABASE_URL_DIRECT.
 echo "deploy: running migrations"
-scripts/migrate.sh upgrade head
+PYTHONPATH="$REPO_ROOT" uv run --no-project \
+  --with "alembic>=1.13" --with "sqlalchemy>=2,<3" \
+  --with "psycopg[binary]>=3.2" --with "pgvector>=0.3" \
+  alembic upgrade head
 
 echo "deploy: wrangler deploy"
 npx wrangler deploy

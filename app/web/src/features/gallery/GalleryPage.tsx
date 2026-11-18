@@ -4,7 +4,6 @@ import {
   usePeople,
   useSearchInfinite,
   flattenPages,
-  useMe,
   useSetPhotoHidden,
 } from '../../api/queries';
 import { useSearchParamString, useSearchParamArray } from '../../hooks/useSearchParamsState';
@@ -25,7 +24,7 @@ const SUGGESTIONS = [
   'old photos',
 ];
 
-export function GalleryPage() {
+export function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) {
   const [q, setQ] = useSearchParamString('q');
   const [inputQ, setInputQ] = useState(() => q);
 
@@ -42,8 +41,6 @@ export function GalleryPage() {
   const [activePhotoIndex, setActivePhotoIndex] = useState<number | null>(null);
 
   const { data: people } = usePeople();
-  const { data: me } = useMe();
-  const isAdmin = !!me?.is_admin;
   const [view, setView] = useSearchParamString('view');
   const hiddenOnly = isAdmin && view === 'hidden';
 
@@ -63,13 +60,19 @@ export function GalleryPage() {
       setHidden.mutate(
         { photoId, hidden },
         {
-          onSuccess: () => setToast({ photoId, hidden }),
+          onSuccess: () => {
+            // The photo just left the list on screen. Close the viewer rather
+            // than let it slide to the next photo, where a second click would
+            // hide a photo the admin never chose.
+            if (hidden !== hiddenOnly) setActivePhotoIndex(null);
+            setToast({ photoId, hidden });
+          },
           onError: () =>
             setToast({ error: hidden ? "Couldn't hide photo" : "Couldn't unhide photo" }),
         },
       );
     },
-    [setHidden],
+    [setHidden, hiddenOnly],
   );
 
   const filters = {

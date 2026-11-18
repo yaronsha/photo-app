@@ -51,6 +51,11 @@ test('admin can hide a photo and see the Hidden view', async ({ page }) => {
   await page.getByRole('button', { name: 'Hide photo' }).click();
   await expect(page.getByRole('status')).toContainText('Photo hidden');
   expect(calls).toContain('POST hide');
+
+  // Viewer closes instead of sliding to another photo, and the hidden photo
+  // leaves the grid without refetching the list.
+  await expect(page.getByRole('dialog', { name: 'Photo viewer' })).toHaveCount(0);
+  await expect(page.getByText('No photos found')).toBeVisible();
 });
 
 test('non-admin sees no hide controls', async ({ page }) => {
