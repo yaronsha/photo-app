@@ -38,6 +38,7 @@ Hybrid semantic + filter search.
 | `person_id` | string (repeatable) | _none_ | Multiple `?person_id=yaron&person_id=noa` |
 | `people_mode` | `any` \| `all` | `any` | `all` = photos containing every listed person |
 | `include_docs` | bool | `false` | When false, excludes `content_type IN ('document','other')` |
+| `hidden` | `exclude` \| `only` | `exclude` | `exclude` leaves out admin-hidden photos (for everyone, admins included). `only` = admin "Hidden" view: just hidden photos, including documents and undated ones, and works with no other filter. Non-admins get 403 for `only` |
 
 **Behavior:**
 - Empty query + no filters → returns `[]`
@@ -64,7 +65,8 @@ Hybrid semantic + filter search.
       "indoor_outdoor": "outdoor",
       "setting_type": "beach",
       "sharpness": "sharp",
-      "face_clarity_score": 4
+      "face_clarity_score": 4,
+      "hidden": false
     }
   ],
   "has_more": false
@@ -92,11 +94,16 @@ Returns a **302 redirect** to a short-TTL presigned URL for the original file. M
 **Storage-key guard:** `storage_path` must start with `photos/` and contain no `..` segments. Otherwise 403.
 
 ### `GET /api/me`
-Returns the authenticated caller's identity (email, sub, whether auth is enforced). Useful for frontend sanity check.
+Returns the authenticated caller's identity (email, sub, whether auth is enforced, whether they're an admin). Useful for frontend sanity check. The UI uses `is_admin` to show hide controls; the server re-checks on every admin call.
 
 ```json
-{"email": "user@example.com", "sub": "...", "auth_enabled": true}
+{"email": "user@example.com", "sub": "...", "auth_enabled": true, "is_admin": false}
 ```
+
+### `POST /photo/{photo_id}/hide` and `POST /photo/{photo_id}/unhide`
+**Admin only** (`require_admin`: email in `ADMIN_EMAILS`, else 403). Hides a photo from every non-admin, or makes it visible again. Idempotent. Sets `photos.hidden_at` / `hidden_by` (cleared on unhide). Returns `{"id": "...", "hidden": true}`. 404 if the photo doesn't exist.
+
+For non-admins a hidden photo behaves as if it didn't exist: it's left out of `/search`, and `/photo/{id}/info`, `/photo/{id}` and the container `/thumb/{id}` return 404. **Known gap:** the Worker's `/thumb/*` fast path (R2 + edge cache) doesn't check the hidden flag, so a thumbnail URL someone already has keeps working.
 
 ### `POST /auth/exchange`
 Fallback for cookie-based `<img>` auth (the default flow uses signed-URL redirects and doesn't need this). Validates the bearer in `Authorization: Bearer <jwt>` and returns `{"ok": true, "email": "..."}`. Frontend would set `sb_jwt` httpOnly cookie via this endpoint if it needed cookie-carrying `<img>` requests.
@@ -108,8 +115,10 @@ Full metadata for one photo. Returns everything in `photos` row plus joined `peo
 ```
 id, caption, taken_at, location_name, description, tags, activities,
 people: [{id, name}], content_type, subject_type, primary_focus,
-indoor_outdoor, setting_type, sharpness, face_clarity_score
+indoor_outdoor, setting_type, sharpness, face_clarity_score, hidden
 ```
+
+404 for non-admins when the photo is hidden.
 
 ## Error Responses
 
@@ -135,6 +144,8 @@ JWT verification via Supabase Auth (Google OAuth). All data endpoints (`/people`
 Tokens are verified by algorithm: **ES256/RS256** (current Supabase default) against the project's JWKS public keys, derived from `SUPABASE_URL`; **HS256** (legacy) against the `SUPABASE_JWT_SECRET` shared secret. Only configured trust material is honored, so the two paths can't be confused.
 
 Auth is **opt-in**: with neither `SUPABASE_URL` (JWKS) nor `SUPABASE_JWT_SECRET` (HS256) set, `require_auth` is a no-op — preserves local-dev rollback path. Setting either + `ALLOWED_EMAILS` flips enforcement on.
+
+Admin endpoints (hide/unhide, `hidden=only`) additionally require the email to be in `ADMIN_EMAILS`. Empty `ADMIN_EMAILS` = nobody is admin. With auth disabled (local dev) everyone is admin.
 
 Cron endpoints (`/api/index-batch`, phase 4) use `require_cron` instead — `Authorization: Bearer <CRON_SECRET>` or `X-Cron-Secret` header.
 

@@ -20,6 +20,10 @@ If both are set, the token's `alg` header selects the path (each path has
 independent trust material, so this is safe). The `email` claim must be in
 `ALLOWED_EMAILS` (comma-separated env list).
 
+Admin-only endpoints (hide/unhide photos) use `require_admin`: the verified
+`email` claim must also be in `ADMIN_EMAILS`. Empty list = nobody is admin
+(fail closed). With auth disabled (local dev), everyone is admin.
+
 Cron endpoints use `require_cron` instead — shared bearer in
 `Authorization` header or `X-Cron-Secret`, compared to `CRON_SECRET`.
 """
@@ -137,6 +141,32 @@ def require_auth(request: Request) -> dict:
     if not allowed or email not in allowed:
         raise HTTPException(status_code=403, detail="email not allowed")
 
+    return claims
+
+
+def _admin_emails() -> set[str]:
+    raw = os.environ.get("ADMIN_EMAILS", "")
+    return {e.strip().lower() for e in raw.split(",") if e.strip()}
+
+
+def is_admin(claims: dict) -> bool:
+    """True if the caller may hide/unhide photos and see hidden ones.
+
+    Auth disabled (local-dev rollback path) → everyone is admin, matching
+    `require_auth` being a no-op there. Auth enabled → the verified email
+    must be in `ADMIN_EMAILS`; an empty list means nobody is admin.
+    """
+    if not _auth_enabled():
+        return True
+    email = (claims.get("email") or "").lower()
+    return bool(email) and email in _admin_emails()
+
+
+def require_admin(request: Request) -> dict:
+    """FastAPI dependency: `require_auth` plus an `ADMIN_EMAILS` check."""
+    claims = require_auth(request)
+    if not is_admin(claims):
+        raise HTTPException(status_code=403, detail="admin only")
     return claims
 
 

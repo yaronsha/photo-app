@@ -1,6 +1,12 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { usePeople, useSearchInfinite, flattenPages } from '../../api/queries';
+import {
+  usePeople,
+  useSearchInfinite,
+  flattenPages,
+  useMe,
+  useSetPhotoHidden,
+} from '../../api/queries';
 import { useSearchParamString, useSearchParamArray } from '../../hooks/useSearchParamsState';
 import { TopBar } from '../../layout/TopBar';
 import { PeopleFilter } from './PeopleFilter';
@@ -36,6 +42,35 @@ export function GalleryPage() {
   const [activePhotoIndex, setActivePhotoIndex] = useState<number | null>(null);
 
   const { data: people } = usePeople();
+  const { data: me } = useMe();
+  const isAdmin = !!me?.is_admin;
+  const [view, setView] = useSearchParamString('view');
+  const hiddenOnly = isAdmin && view === 'hidden';
+
+  const setHidden = useSetPhotoHidden();
+  const [toast, setToast] = useState<
+    { photoId: string; hidden: boolean } | { error: string } | null
+  >(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 6000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const toggleHidden = useCallback(
+    (photoId: string, hidden: boolean) => {
+      setHidden.mutate(
+        { photoId, hidden },
+        {
+          onSuccess: () => setToast({ photoId, hidden }),
+          onError: () =>
+            setToast({ error: hidden ? "Couldn't hide photo" : "Couldn't unhide photo" }),
+        },
+      );
+    },
+    [setHidden],
+  );
 
   const filters = {
     q,
@@ -43,6 +78,7 @@ export function GalleryPage() {
     dateTo,
     personIds,
     peopleMode: (peopleMode === 'all' ? 'all' : 'any') as 'any' | 'all',
+    hiddenOnly,
   };
 
   const {
@@ -131,7 +167,7 @@ export function GalleryPage() {
     }
   }, [allPhotos.length, activePhotoIndex]);
 
-  const hasFilters = !!(q || dateFrom || dateTo || personIds.length);
+  const hasFilters = !!(q || dateFrom || dateTo || personIds.length || hiddenOnly);
 
   return (
     <>
@@ -165,6 +201,26 @@ export function GalleryPage() {
                 />
               )}
             </div>
+            {isAdmin && (
+              <div className="flex flex-col gap-md">
+                <h3 className="text-label-md text-on-surface-variant uppercase tracking-wider">
+                  Admin
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setView(hiddenOnly ? '' : 'hidden')}
+                  aria-pressed={hiddenOnly}
+                  className={`flex items-center gap-sm rounded-xl px-md py-sm border transition-colors ${
+                    hiddenOnly
+                      ? 'bg-primary text-on-primary border-primary'
+                      : 'bg-surface-container-low text-on-surface border-outline-variant hover:border-primary'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[18px]">visibility_off</span>
+                  <span className="text-body-md">Hidden photos</span>
+                </button>
+              </div>
+            )}
           </div>
         </section>
 
@@ -174,7 +230,7 @@ export function GalleryPage() {
         ) : isLoading ? (
           <PhotoGrid photos={[]} onPhotoClick={openPhoto} isLoading />
         ) : allPhotos.length === 0 ? (
-          <NoResults />
+          hiddenOnly ? <NoHidden /> : <NoResults />
         ) : (
           <>
             <div className="mb-md">
@@ -205,7 +261,38 @@ export function GalleryPage() {
           hasPrev={activePhotoIndex > 0}
           hasNext={activePhotoIndex < allPhotos.length - 1 || !!hasNextPage}
           isLoadingNext={isFetchingNextPage && activePhotoIndex === allPhotos.length - 1}
+          isAdmin={isAdmin}
+          onToggleHidden={toggleHidden}
+          isTogglingHidden={setHidden.isPending}
         />
+      )}
+
+      {toast && (
+        <div
+          role="status"
+          className="fixed bottom-[76px] md:bottom-lg left-1/2 -translate-x-1/2 z-[110] flex items-center gap-md bg-inverse-surface text-inverse-on-surface px-lg py-md rounded-xl shadow-lg"
+        >
+          {'error' in toast ? (
+            <span className="text-body-md">{toast.error}</span>
+          ) : (
+            <>
+              <span className="text-body-md">
+                {toast.hidden ? 'Photo hidden from everyone except admins' : 'Photo visible again'}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  const { photoId, hidden } = toast;
+                  setToast(null);
+                  toggleHidden(photoId, !hidden);
+                }}
+                className="text-label-md font-bold underline"
+              >
+                Undo
+              </button>
+            </>
+          )}
+        </div>
       )}
     </>
   );
@@ -235,6 +322,22 @@ function EmptyState({ onSuggestion }: { onSuggestion: (s: string) => void }) {
             {s}
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function NoHidden() {
+  return (
+    <div className="flex flex-col items-center justify-center py-[80px] gap-lg text-center">
+      <span className="material-symbols-outlined text-[64px] text-on-surface-variant">
+        visibility
+      </span>
+      <div>
+        <p className="text-headline-sm text-on-surface font-bold mb-xs">No hidden photos</p>
+        <p className="text-body-md text-on-surface-variant">
+          Photos you hide show up here so you can unhide them
+        </p>
       </div>
     </div>
   );

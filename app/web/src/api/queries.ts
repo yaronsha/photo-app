@@ -1,5 +1,5 @@
-import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
-import { fetchPeople, fetchSearch, fetchPhotoInfo } from './client';
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { fetchMe, fetchPeople, fetchSearch, fetchPhotoInfo, setPhotoHidden } from './client';
 import type { SearchParams, SearchResult } from './types';
 
 const LIMIT = 50;
@@ -19,6 +19,8 @@ export interface SearchFilters {
   dateTo: string;
   personIds: string[];
   peopleMode: 'any' | 'all';
+  /** Admin "Hidden" view: only hidden photos, works with no other filter. */
+  hiddenOnly?: boolean;
 }
 
 export function hasAnyFilter(filters: SearchFilters): boolean {
@@ -26,7 +28,8 @@ export function hasAnyFilter(filters: SearchFilters): boolean {
     filters.q ||
     filters.dateFrom ||
     filters.dateTo ||
-    filters.personIds.length
+    filters.personIds.length ||
+    filters.hiddenOnly
   );
 }
 
@@ -46,6 +49,7 @@ export function useSearchInfinite(filters: SearchFilters) {
         params.person_id = filters.personIds;
         params.people_mode = filters.peopleMode;
       }
+      if (filters.hiddenOnly) params.hidden = 'only';
       return fetchSearch(params);
     },
     initialPageParam: 0,
@@ -63,6 +67,29 @@ export function flattenPages(
 ): SearchResult[] {
   if (!pages) return [];
   return pages.flatMap(p => p.results);
+}
+
+/** Current user's identity + admin flag. Admin only gates UI; the server
+ *  re-checks on every hide/unhide call. */
+export function useMe() {
+  return useQuery({
+    queryKey: ['me'],
+    queryFn: fetchMe,
+    staleTime: Infinity,
+    retry: false,
+  });
+}
+
+export function useSetPhotoHidden() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ photoId, hidden }: { photoId: string; hidden: boolean }) =>
+      setPhotoHidden(photoId, hidden),
+    onSuccess: (_data, { photoId }) => {
+      queryClient.invalidateQueries({ queryKey: ['search'] });
+      queryClient.invalidateQueries({ queryKey: ['photoInfo', photoId] });
+    },
+  });
 }
 
 export function usePhotoInfo(photoId: string | null) {

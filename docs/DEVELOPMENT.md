@@ -214,6 +214,7 @@ A legacy `photos_dir` key is ignored if present (Pydantic `extra="ignore"`), so 
 | `SUPABASE_JWKS_URL` | derived from `SUPABASE_URL` | Backend: explicit JWKS endpoint override. Rarely needed |
 | `SUPABASE_JWT_SECRET` | — | Backend: HS256 shared-secret verify key, for legacy/migrated projects that still sign with HS256. **Also enforces auth when set.** Unset *and* no `SUPABASE_URL` = local-dev rollback path (all endpoints open) |
 | `ALLOWED_EMAILS` | — | Comma-separated email allowlist checked against the JWT `email` claim. Required when auth enforced |
+| `ADMIN_EMAILS` | — | Comma-separated subset of `ALLOWED_EMAILS` who can hide/unhide photos and see the Hidden view. Empty = nobody. Ignored when auth is disabled (everyone is admin). Set in `wrangler.jsonc` vars for prod |
 | `CRON_SECRET` | — | Shared bearer for `/api/index-batch` (phase 4). Cron gate is bypassed when unset |
 | `VITE_SUPABASE_URL` | — | Frontend build-time: Supabase project URL. Setting both this and the anon key enables the Google OAuth login gate |
 | `VITE_SUPABASE_ANON_KEY` | — | Frontend build-time: Supabase anon public key |

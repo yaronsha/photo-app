@@ -12,6 +12,7 @@ const CONTAINER_ENV_KEYS = [
   "R2_BUCKET",
   "SUPABASE_URL",
   "ALLOWED_EMAILS",
+  "ADMIN_EMAILS",
   "OPENAI_API_KEY",
 ] as const;
 
