@@ -197,3 +197,36 @@ def test_index_serves_html(client):
     resp = client.get("/")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
+
+
+def test_photo_storage_error_is_logged_with_s3_code(tmp_env, client, monkeypatch, caplog):
+    """A storage failure still returns the opaque 502, but the cause is logged."""
+    import logging
+
+    from botocore.exceptions import ClientError
+
+    import app.api.main as main_mod
+
+    _seed_photo(tmp_env, photo_id="storeerr12345678")
+
+    class _Broken:
+        def exists(self, key):
+            raise ClientError(
+                {"Error": {"Code": "InvalidAccessKeyId", "Message": "bad key"},
+                 "ResponseMetadata": {"HTTPStatusCode": 403}},
+                "HeadObject",
+            )
+
+    monkeypatch.setattr(main_mod, "get_storage", lambda: _Broken())
+
+    with caplog.at_level(logging.ERROR, logger="app.api"):
+        resp = client.get("/photo/storeerr12345678", follow_redirects=False)
+
+    assert resp.status_code == 502
+    assert resp.json() == {"detail": "Storage backend error"}
+    rec = next(r for r in caplog.records if r.getMessage() == "storage backend error")
+    assert rec.photo_id == "storeerr12345678"
+    assert rec.op == "photo"
+    assert rec.error_code == "InvalidAccessKeyId"
+    assert rec.http_status == 403
+    assert rec.exc_info is not None

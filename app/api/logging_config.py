@@ -14,7 +14,15 @@ import time
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
 
 # Promoted to top-level JSON keys when passed via logging's extra=.
-_EXTRA_FIELDS = ("path", "method")
+_EXTRA_FIELDS = (
+    "path",
+    "method",
+    "photo_id",
+    "op",
+    "error_type",
+    "error_code",
+    "http_status",
+)
 
 
 class JsonFormatter(logging.Formatter):
