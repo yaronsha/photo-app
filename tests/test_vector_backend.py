@@ -76,6 +76,24 @@ class TestChromaBackend:
         assert isinstance(models, set)
 
 
+
+    def test_update_year_moves_photo_between_year_filters(self, backend):
+        backend.upsert("p1", VEC_A, "model-x", 2021)
+        assert backend.update_year("p1", 1985) is True
+        assert [r[0] for r in backend.query(VEC_QUERY, n=1, year_filter=1985)] == ["p1"]
+        assert backend.query(VEC_QUERY, n=1, year_filter=2021) == []
+        assert backend.count() == 1
+
+    def test_update_year_keeps_embed_model(self, backend):
+        backend.upsert("p1", VEC_A, "model-x", 2021)
+        backend.update_year("p1", 1985)
+        meta = backend._collection.get(ids=["p1"], include=["metadatas"])["metadatas"][0]
+        assert meta == {"year": 1985, "embed_model": "model-x"}
+
+    def test_update_year_missing_photo_is_noop(self, backend):
+        assert backend.update_year("nope", 1985) is False
+        assert backend.count() == 0
+
 # ── PgvectorBackend (integration job, needs Postgres) ────────────────────────
 
 @pytest.mark.requires_postgres
@@ -124,3 +142,14 @@ class TestPgvectorBackend:
         _seed_pg_photo(pg_session_factory, "p1")
         pg_backend.upsert("p1", VEC_A, "model-x", 2020)
         assert pg_backend.distinct_embed_models() == {"model-x"}
+
+    def test_update_year_moves_photo_between_year_filters(self, pg_backend, pg_session_factory):
+        _seed_pg_photo(pg_session_factory, "p1")
+        pg_backend.upsert("p1", VEC_A, "model-x", 2021)
+        assert pg_backend.update_year("p1", 1985) is True
+        assert [r[0] for r in pg_backend.query(VEC_QUERY, n=1, year_filter=1985)] == ["p1"]
+        assert pg_backend.query(VEC_QUERY, n=1, year_filter=2021) == []
+        assert pg_backend.distinct_embed_models() == {"model-x"}
+
+    def test_update_year_missing_photo_is_noop(self, pg_backend):
+        assert pg_backend.update_year("nope", 1985) is False

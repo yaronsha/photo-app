@@ -25,6 +25,13 @@ class ChromaBackend:
             metadatas=[{"year": year or 0, "embed_model": embed_model}],
         )
 
+    def update_year(self, photo_id: str, year: int | None) -> bool:
+        if not self._collection.get(ids=[photo_id], include=[])["ids"]:
+            return False
+        # update() merges metadata keys, so embed_model is preserved.
+        self._collection.update(ids=[photo_id], metadatas=[{"year": year or 0}])
+        return True
+
     def query(
         self,
         qvec: list[float],

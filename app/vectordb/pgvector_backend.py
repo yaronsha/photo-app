@@ -1,7 +1,7 @@
 """pgvector-backed vector store via SQLAlchemy + Supabase Postgres."""
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import sessionmaker
 
@@ -36,6 +36,17 @@ class PgvectorBackend:
         with self._sf() as session:
             session.execute(stmt)
             session.commit()
+
+    def update_year(self, photo_id: str, year: int | None) -> bool:
+        stmt = (
+            update(Embedding)
+            .where(Embedding.photo_id == photo_id)
+            .values(year=year)
+        )
+        with self._sf() as session:
+            result = session.execute(stmt)
+            session.commit()
+        return result.rowcount > 0
 
     def query(
         self,
