@@ -261,7 +261,11 @@ def _storage_error(exc: Exception, photo_id: str, op: str) -> HTTPException:
     never reaches the logs. Logs the S3 error code and HTTP status when the
     backend gives one; never the key material.
     """
-    response = getattr(exc, "response", None) or {}
+    response = getattr(exc, "response", None)
+    if not isinstance(response, dict):
+        # e.g. requests/httpx put a Response object here; don't let the
+        # error path itself raise and turn the 502 into a 500.
+        response = {}
     logger.exception(
         "storage backend error",
         extra={
