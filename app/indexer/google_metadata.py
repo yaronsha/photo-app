@@ -2,14 +2,16 @@
 Indexer step: enrich photos from Google Takeout sidecar JSON files.
 
 Reads data/sidecars/{photo_id}.json and populates:
-  - taken_at        (photoTakenTime — authoritative for old/scanned photos)
+  - taken_at        (photoTakenTime — fills a missing EXIF date, and overrides
+                     EXIF when the two disagree by more than a day; see
+                     _resolve_taken_at)
   - lat / lng       (geoData — supplements EXIF)
   - description     (user-written note from Google Photos)
   - google_people   (raw JSON of Google face tags)
   - photo_people    (mapped to person IDs via config google_name_aliases)
 """
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, update
 
@@ -25,6 +27,42 @@ def _ts_to_iso(timestamp_str: str) -> str | None:
         return datetime.fromtimestamp(int(timestamp_str), tz=timezone.utc).isoformat()
     except Exception:
         return None
+
+
+# EXIF dates are camera-local time (stored as if UTC); photoTakenTime is true
+# UTC. Gaps up to this size are just timezone offsets (max is UTC+14), so
+# anything larger means the two sources really disagree.
+_DATE_DISAGREEMENT = timedelta(days=1)
+
+
+def _parse_iso(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _resolve_taken_at(current: str | None, sidecar_ts: str | None) -> str | None:
+    """Pick taken_at from the existing (EXIF) value and the sidecar timestamp.
+
+    Scanners write the scan time into EXIF, and Google Photos keeps the
+    user-corrected date in photoTakenTime, so a large disagreement means the
+    sidecar is right. A small one is only a timezone offset, and EXIF (local
+    time) is kept.
+    """
+    sidecar_iso = _ts_to_iso(sidecar_ts) if sidecar_ts else None
+    if not sidecar_iso:
+        return current
+    current_dt = _parse_iso(current)
+    if current_dt is None:
+        return sidecar_iso
+    sidecar_dt = datetime.fromisoformat(sidecar_iso)
+    if abs(current_dt - sidecar_dt) > _DATE_DISAGREEMENT:
+        return sidecar_iso
+    return current
 
 
 def run_google_metadata(reindex: bool = False) -> int:
@@ -87,11 +125,10 @@ def run_google_metadata(reindex: bool = False) -> int:
                 skipped += 1
                 continue
 
-            # taken_at: sidecar wins when EXIF is absent
-            new_taken_at = taken_at
-            ts = data.get("photoTakenTime", {}).get("timestamp")
-            if ts and not new_taken_at:
-                new_taken_at = _ts_to_iso(ts)
+            # taken_at: sidecar fills a missing EXIF date, and overrides EXIF
+            # when they disagree by more than a timezone offset (scans).
+            ts = (data.get("photoTakenTime") or {}).get("timestamp")
+            new_taken_at = _resolve_taken_at(taken_at, ts)
 
             # lat/lng: sidecar supplements EXIF
             new_lat = lat

@@ -52,7 +52,7 @@ Walk `photos_dir`, register `pillow-heif` opener, extract EXIF (`DateTimeOrigina
 ### 2. google_metadata — `app/indexer/google_metadata.py`
 
 Read `data/sidecars/{photo_id}.json`. Populate:
-- `taken_at` from `photoTakenTime` if EXIF empty (authoritative for old/scanned photos)
+- `taken_at` from `photoTakenTime` if EXIF is empty, or if EXIF and `photoTakenTime` disagree by more than a day (scanners write the scan time into EXIF; Google keeps the corrected date). Smaller gaps are timezone offsets, so EXIF is kept.
 - `lat` / `lng` from `geoData` if EXIF GPS empty
 - `description` (user note)
 - `google_people` (raw JSON)
