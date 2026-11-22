@@ -2,14 +2,16 @@
 Indexer step: enrich photos from Google Takeout sidecar JSON files.
 
 Reads data/sidecars/{photo_id}.json and populates:
-  - taken_at        (photoTakenTime — authoritative for old/scanned photos)
+  - taken_at        (photoTakenTime — fills a missing EXIF date, and overrides
+                     EXIF when the two disagree by more than a day; see
+                     _resolve_taken_at)
   - lat / lng       (geoData — supplements EXIF)
   - description     (user-written note from Google Photos)
   - google_people   (raw JSON of Google face tags)
   - photo_people    (mapped to person IDs via config google_name_aliases)
 """
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, update
 
@@ -25,6 +27,79 @@ def _ts_to_iso(timestamp_str: str) -> str | None:
         return datetime.fromtimestamp(int(timestamp_str), tz=timezone.utc).isoformat()
     except Exception:
         return None
+
+
+# EXIF dates are camera-local time (stored as if UTC); photoTakenTime is true
+# UTC. Gaps up to this size are just timezone offsets (max is UTC+14), so
+# anything larger means the two sources really disagree.
+_DATE_DISAGREEMENT = timedelta(days=1)
+
+
+def _parse_iso(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _resolve_taken_at(current: str | None, sidecar_ts: str | None) -> str | None:
+    """Pick taken_at from the existing (EXIF) value and the sidecar timestamp.
+
+    Scanners write the scan time into EXIF, and Google Photos keeps the
+    user-corrected date in photoTakenTime, so a large disagreement means the
+    sidecar is right. A small one is only a timezone offset, and EXIF (local
+    time) is kept.
+    """
+    # "0" is a placeholder (1970-01-01), not a real date; negative values are
+    # genuine pre-1970 dates and are kept.
+    if not sidecar_ts or str(sidecar_ts).strip() == "0":
+        return current
+    sidecar_iso = _ts_to_iso(sidecar_ts)
+    if not sidecar_iso:
+        return current
+    current_dt = _parse_iso(current)
+    if current_dt is None:
+        return sidecar_iso
+    sidecar_dt = datetime.fromisoformat(sidecar_iso)
+    if abs(current_dt - sidecar_dt) > _DATE_DISAGREEMENT:
+        return sidecar_iso
+    return current
+
+
+def _year(iso: str | None) -> int | None:
+    try:
+        return int(str(iso)[:4]) if iso else None
+    except ValueError:
+        return None
+
+
+def _sync_vector_years(year_changes: dict[str, int | None]) -> None:
+    """Keep the vector store's year pre-filter in step with a corrected taken_at.
+
+    Runs after the SQLite transaction has committed, so no lock is held while
+    talking to the vector backend. No re-embedding (no API cost).
+    """
+    if not year_changes:
+        return
+    from ..vectordb import get_vector_backend
+
+    try:
+        backend = get_vector_backend()
+        synced = sum(
+            backend.update_year(pid, year) for pid, year in year_changes.items()
+        )
+    except Exception as exc:
+        print(
+            f"  google_metadata WARNING: vector year sync failed "
+            f"({type(exc).__name__}: {exc}). These photos keep a stale year in "
+            f"year-filtered semantic search until re-embedded: "
+            f"{', '.join(sorted(year_changes))}"
+        )
+        return
+    print(f"google_metadata: synced vector year for {synced} photo(s)")
 
 
 def run_google_metadata(reindex: bool = False) -> int:
@@ -44,15 +119,18 @@ def run_google_metadata(reindex: bool = False) -> int:
                 session, id=person.id, name=person.name, family_id=person.family_id
             )
 
-        stmt = select(Photo.id, Photo.taken_at, Photo.lat, Photo.lng)
+        stmt = select(
+            Photo.id, Photo.taken_at, Photo.lat, Photo.lng, Photo.vector_indexed_at
+        )
         if not reindex:
             stmt = stmt.where(Photo.google_metadata_indexed_at.is_(None))
         rows = session.execute(stmt).all()
 
         enriched = skipped = no_sidecar = 0
+        year_changes: dict[str, int | None] = {}
         now = datetime.now(timezone.utc).isoformat()
 
-        for photo_id, taken_at, lat, lng in rows:
+        for photo_id, taken_at, lat, lng, vector_indexed_at in rows:
             sidecar_key = f"sidecars/{photo_id}.json"
 
             if not storage.exists(sidecar_key):
@@ -87,11 +165,12 @@ def run_google_metadata(reindex: bool = False) -> int:
                 skipped += 1
                 continue
 
-            # taken_at: sidecar wins when EXIF is absent
-            new_taken_at = taken_at
-            ts = data.get("photoTakenTime", {}).get("timestamp")
-            if ts and not new_taken_at:
-                new_taken_at = _ts_to_iso(ts)
+            # taken_at: sidecar fills a missing EXIF date, and overrides EXIF
+            # when they disagree by more than a timezone offset (scans).
+            ts = (data.get("photoTakenTime") or {}).get("timestamp")
+            new_taken_at = _resolve_taken_at(taken_at, ts)
+            if vector_indexed_at and _year(new_taken_at) != _year(taken_at):
+                year_changes[photo_id] = _year(new_taken_at)
 
             # lat/lng: sidecar supplements EXIF
             new_lat = lat
@@ -130,6 +209,8 @@ def run_google_metadata(reindex: bool = False) -> int:
                     )
 
             enriched += 1
+
+    _sync_vector_years(year_changes)
 
     print(f"google_metadata: {enriched} enriched, {no_sidecar} no sidecar, {skipped} errors")
     return enriched

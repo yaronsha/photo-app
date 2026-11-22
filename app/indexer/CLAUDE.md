@@ -54,6 +54,7 @@ Bumping triggers re-process of all rows next run, no `--reindex` needed.
 - Embed text = `caption + " " + " ".join(activities)` — activities participate in semantic space
 - Skip rows where `content_type IN ('document', 'other')` — keeps semantic space clean
 - ChromaDB metadata = `{"year": int_or_0}` — minimal, only for pre-filter
+- If another step changes `taken_at` on an embedded photo, sync the year with `vector_db.update_year()` (as `google_metadata` does) — no re-embed needed
 - `assert_embed_model` records embed model in collection metadata; mismatch raises
 - Reset embed model: delete `data/chroma/` (no migration path between models)
 

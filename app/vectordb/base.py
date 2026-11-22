@@ -13,6 +13,13 @@ class VectorBackend(Protocol):
         year: int | None,
     ) -> None: ...
 
+    def update_year(self, photo_id: str, year: int | None) -> bool:
+        """Change the stored year of an existing vector without re-embedding.
+
+        Returns False (and does nothing) if the photo has no vector yet.
+        """
+        ...
+
     def query(
         self,
         qvec: list[float],

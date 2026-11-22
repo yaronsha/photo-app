@@ -160,22 +160,110 @@ def test_google_metadata_seeds_people_table(tmp_env):
     assert rows == [("noa", "Noa Shapira"), ("yaron", "Yaron Shapira")]
 
 
-def test_google_metadata_does_not_overwrite_existing_taken_at(tmp_env):
-    """If EXIF gave us a taken_at, sidecar should not overwrite."""
-    photo_id = _scan_photo(tmp_env)
-    # Manually set taken_at as if from EXIF
+def _set_taken_at(photo_id: str, value: str) -> None:
     with get_session() as s:
-        s.execute(
-            update(Photo)
-            .where(Photo.id == photo_id)
-            .values(taken_at="2015-05-15T10:00:00+00:00")
-        )
+        s.execute(update(Photo).where(Photo.id == photo_id).values(taken_at=value))
 
-    _write_sidecar(tmp_env, photo_id, {"photoTakenTime": {"timestamp": "1577880000"}})
+
+def _taken_at() -> str:
+    with get_session() as s:
+        return s.query(Photo).first().taken_at
+
+
+def test_google_metadata_sidecar_overrides_exif_scan_date(tmp_env):
+    """Scan: EXIF holds the scan time, sidecar holds the corrected older date."""
+    photo_id = _scan_photo(tmp_env)
+    _set_taken_at(photo_id, "2021-03-10T14:22:05+00:00")  # scan time from EXIF
+    # 1985-06-15T12:00:00Z, the date corrected in Google Photos
+    _write_sidecar(tmp_env, photo_id, {"photoTakenTime": {"timestamp": "487684800"}})
 
     from app.indexer.google_metadata import run_google_metadata
     run_google_metadata()
 
+    assert _taken_at().startswith("1985-06-15T12:00:00")
+
+
+def test_google_metadata_keeps_exif_when_only_timezone_differs(tmp_env):
+    """Digital photo: EXIF local time vs sidecar UTC differ by hours only."""
+    photo_id = _scan_photo(tmp_env)
+    # Taken 2015-05-15 10:00 local in UTC-7 → 17:00 UTC in the sidecar
+    _set_taken_at(photo_id, "2015-05-15T10:00:00+00:00")
+    _write_sidecar(tmp_env, photo_id, {"photoTakenTime": {"timestamp": "1431709200"}})
+
+    from app.indexer.google_metadata import run_google_metadata
+    run_google_metadata()
+
+    assert _taken_at() == "2015-05-15T10:00:00+00:00"
+
+
+def test_google_metadata_keeps_exif_when_sidecar_has_no_date(tmp_env):
+    photo_id = _scan_photo(tmp_env)
+    _set_taken_at(photo_id, "2015-05-15T10:00:00+00:00")
+    _write_sidecar(tmp_env, photo_id, {"description": "no date here"})
+
+    from app.indexer.google_metadata import run_google_metadata
+    run_google_metadata()
+
+    assert _taken_at() == "2015-05-15T10:00:00+00:00"
+
+
+def test_resolve_taken_at_edge_cases():
+    from app.indexer.google_metadata import _resolve_taken_at
+
+    # naive EXIF string is treated as UTC for comparison
+    assert _resolve_taken_at("2015-05-15T10:00:00", "1431709200") == "2015-05-15T10:00:00"
+    # unparseable sidecar timestamp keeps the current value
+    assert _resolve_taken_at("2015-05-15T10:00:00+00:00", "abc") == "2015-05-15T10:00:00+00:00"
+    # unparseable current value falls back to the sidecar
+    assert _resolve_taken_at("garbage", "1431709200").startswith("2015-05-15T17:00:00")
+    # exactly one day apart is still treated as the same date
+    assert _resolve_taken_at("2015-05-14T17:00:00+00:00", "1431709200") == "2015-05-14T17:00:00+00:00"
+    # "0" placeholder never overrides a real date; negative (pre-1970) does
+    assert _resolve_taken_at("2015-05-15T10:00:00+00:00", "0") == "2015-05-15T10:00:00+00:00"
+    assert _resolve_taken_at("2015-05-15T10:00:00+00:00", "-631152000").startswith("1950-01-01")
+
+
+def test_google_metadata_syncs_vector_year_when_year_changes(tmp_env):
+    """An already-embedded scan moves to the corrected year in the vector store."""
+    from app.vectordb import get_vector_backend
+
+    photo_id = _scan_photo(tmp_env)
+    _set_taken_at(photo_id, "2021-03-10T14:22:05+00:00")
     with get_session() as s:
-        row = s.query(Photo).first()
-    assert "2015" in row.taken_at
+        s.execute(
+            update(Photo).where(Photo.id == photo_id)
+            .values(vector_indexed_at="2021-03-11T00:00:00+00:00")
+        )
+    vec = [1.0] + [0.0] * 15
+    get_vector_backend().upsert(photo_id, vec, "model-x", 2021)
+    _write_sidecar(tmp_env, photo_id, {"photoTakenTime": {"timestamp": "487684800"}})
+
+    from app.indexer.google_metadata import run_google_metadata
+    run_google_metadata()
+
+    backend = get_vector_backend()
+    assert [r[0] for r in backend.query(vec, n=1, year_filter=1985)] == [photo_id]
+    assert backend.query(vec, n=1, year_filter=2021) == []
+
+
+def test_google_metadata_skips_vector_sync_when_year_unchanged(tmp_env, monkeypatch):
+    """Timezone-only differences never touch the vector store."""
+    from app import vectordb
+
+    def _boom():
+        raise AssertionError("vector backend should not be opened")
+
+    monkeypatch.setattr(vectordb, "get_vector_backend", _boom)
+    photo_id = _scan_photo(tmp_env)
+    _set_taken_at(photo_id, "2015-05-15T10:00:00+00:00")
+    with get_session() as s:
+        s.execute(
+            update(Photo).where(Photo.id == photo_id)
+            .values(vector_indexed_at="2015-06-01T00:00:00+00:00")
+        )
+    _write_sidecar(tmp_env, photo_id, {"photoTakenTime": {"timestamp": "1431709200"}})
+
+    from app.indexer.google_metadata import run_google_metadata
+    run_google_metadata()
+
+    assert _taken_at() == "2015-05-15T10:00:00+00:00"
