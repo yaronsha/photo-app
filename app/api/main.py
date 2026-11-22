@@ -174,8 +174,8 @@ def thumb(photo_id: str, claims: dict = Depends(require_auth)):
             thumb_bytes = _make_thumb(storage.read_bytes(db_photo.storage_path))
         except KeyNotFound:
             raise HTTPException(status_code=404, detail="Photo bytes not found")
-        except Exception:
-            raise HTTPException(status_code=502, detail="Storage backend error")
+        except Exception as exc:
+            raise _storage_error(exc, photo_id, "thumb_hidden")
         return Response(
             thumb_bytes,
             media_type="image/jpeg",
@@ -193,8 +193,8 @@ def thumb(photo_id: str, claims: dict = Depends(require_auth)):
         raise HTTPException(status_code=404, detail="Photo bytes not found")
     except HTTPException:
         raise
-    except Exception:
-        raise HTTPException(status_code=502, detail="Storage backend error")
+    except Exception as exc:
+        raise _storage_error(exc, photo_id, "thumb")
 
 
 @app.get("/photo/{photo_id}/info")
@@ -250,8 +250,33 @@ def photo(photo_id: str, claims: dict = Depends(require_auth)):
         raise
     except KeyNotFound:
         raise HTTPException(status_code=404, detail="Photo bytes not found")
-    except Exception:
-        raise HTTPException(status_code=502, detail="Storage backend error")
+    except Exception as exc:
+        raise _storage_error(exc, photo_id, "photo")
+
+
+def _storage_error(exc: Exception, photo_id: str, op: str) -> HTTPException:
+    """Log why a storage call failed, then return the opaque 502 to raise.
+
+    Without this the real cause (e.g. R2 rejecting the container's S3 keys)
+    never reaches the logs. Logs the S3 error code and HTTP status when the
+    backend gives one; never the key material.
+    """
+    response = getattr(exc, "response", None)
+    if not isinstance(response, dict):
+        # e.g. requests/httpx put a Response object here; don't let the
+        # error path itself raise and turn the 502 into a 500.
+        response = {}
+    logger.exception(
+        "storage backend error",
+        extra={
+            "photo_id": photo_id,
+            "op": op,
+            "error_type": type(exc).__name__,
+            "error_code": response.get("Error", {}).get("Code"),
+            "http_status": response.get("ResponseMetadata", {}).get("HTTPStatusCode"),
+        },
+    )
+    return HTTPException(status_code=502, detail="Storage backend error")
 
 
 def _can_see(photo: Photo, claims: dict) -> bool:
